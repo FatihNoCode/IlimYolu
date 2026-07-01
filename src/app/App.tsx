@@ -1,14 +1,17 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, lazy, Suspense } from 'react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getSupabaseClient } from '../lib/supabase';
 import LoginPage from './components/LoginPage';
-import ParentDashboard from './components/ParentDashboard';
-import TeacherDashboard from './components/TeacherDashboard';
-import AdminDashboard from './components/AdminDashboard';
-import InvitePage from './components/InvitePage';
-import InschrijvingPage from './components/InschrijvingPage';
-import ResetPasswordPage from './components/ResetPasswordPage';
 import faviconUrl from '../imports/books__1_.png';
+
+// Role-specific dashboards and secondary pages are code-split so a user
+// only downloads the bundle for the view they actually land on.
+const ParentDashboard = lazy(() => import('./components/ParentDashboard'));
+const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const InvitePage = lazy(() => import('./components/InvitePage'));
+const InschrijvingPage = lazy(() => import('./components/InschrijvingPage'));
+const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
 
 const supabase = getSupabaseClient();
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
@@ -185,28 +188,36 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <div className="size-full bg-gradient-to-br from-emerald-50 to-teal-100">
-        {isRecovery ? (
-          <ResetPasswordPage language={language} onDone={() => setIsRecovery(false)} />
-        ) : isInschrijvingPage ? (
-          <InschrijvingPage />
-        ) : inviteToken ? (
-          <InvitePage token={inviteToken} onComplete={() => {
-            setInviteToken(null);
-            window.history.pushState({}, '', '/');
-          }} />
-        ) : !user ? (
-          <LoginPage
-            onLogin={handleLogin}
-            language={language}
-            setLanguage={setLanguage}
-          />
-        ) : user.role === 'parent' ? (
-          <ParentDashboard onLogout={handleLogout} />
-        ) : user.role === 'teacher' ? (
-          <TeacherDashboard onLogout={handleLogout} />
-        ) : (
-          <AdminDashboard onLogout={handleLogout} />
-        )}
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center size-full">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+            </div>
+          }
+        >
+          {isRecovery ? (
+            <ResetPasswordPage language={language} onDone={() => setIsRecovery(false)} />
+          ) : isInschrijvingPage ? (
+            <InschrijvingPage />
+          ) : inviteToken ? (
+            <InvitePage token={inviteToken} onComplete={() => {
+              setInviteToken(null);
+              window.history.pushState({}, '', '/');
+            }} />
+          ) : !user ? (
+            <LoginPage
+              onLogin={handleLogin}
+              language={language}
+              setLanguage={setLanguage}
+            />
+          ) : user.role === 'parent' ? (
+            <ParentDashboard onLogout={handleLogout} />
+          ) : user.role === 'teacher' ? (
+            <TeacherDashboard onLogout={handleLogout} />
+          ) : (
+            <AdminDashboard onLogout={handleLogout} />
+          )}
+        </Suspense>
       </div>
     </AppContext.Provider>
   );
