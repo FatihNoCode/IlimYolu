@@ -1,0 +1,9 @@
+project_id = "uriirwsjpzsjnaosqlph"
+
+# The deployed function slug is make-server-6679cacd; its source lives in
+# the server/ folder. To redeploy from the CLI:
+#   SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy make-server-6679cacd \
+#     --project-ref uriirwsjpzsjnaosqlph --use-api
+[functions.make-server-6679cacd]
+entrypoint = "./functions/server/index.tsx"
+verify_jwt = true
