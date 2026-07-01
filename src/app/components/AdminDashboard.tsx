@@ -455,7 +455,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   : 'text-gray-500'
               }`}
             >
-              {language === 'tr' ? 'Varlıkları Yönet' : 'Beheer Entiteiten'}
+              {language === 'tr' ? 'Sınıf Yönetimi' : 'Klassen beheer'}
             </button>
             <button
               onClick={() => setActiveTab('teachers')}
@@ -475,17 +475,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   : 'text-gray-500'
               }`}
             >
-              {language === 'tr' ? 'Bildirimler' : 'Meldingen'}
-            </button>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`pb-2 sm:pb-3 px-2 sm:px-3 md:px-4 font-semibold transition whitespace-nowrap text-xs sm:text-sm md:text-base ${
-                activeTab === 'settings'
-                  ? 'border-b-2 border-emerald-600 text-emerald-600'
-                  : 'text-gray-500'
-              }`}
-            >
-              {language === 'tr' ? 'Ayarlar' : 'Instellingen'}
+              {language === 'tr' ? 'Hastalık Bildirimleri' : 'Ziekmeldingen'}
             </button>
             <button
               onClick={() => setActiveTab('boekhouding')}
@@ -506,6 +496,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
               }`}
             >
               {language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen'}
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`pb-2 sm:pb-3 px-2 sm:px-3 md:px-4 font-semibold transition whitespace-nowrap text-xs sm:text-sm md:text-base ${
+                activeTab === 'settings'
+                  ? 'border-b-2 border-emerald-600 text-emerald-600'
+                  : 'text-gray-500'
+              }`}
+            >
+              {language === 'tr' ? 'Ayarlar' : 'Instellingen'}
             </button>
           </div>
 

@@ -405,7 +405,7 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
                     : 'text-gray-500'
                 }`}
               >
-                {language === 'tr' ? 'Bildirimler' : 'Meldingen'}
+                {language === 'tr' ? 'Hastalık Bildirimleri' : 'Ziekmeldingen'}
               </button>
               <button
                 onClick={() => setActiveTab('beheer')}
