@@ -62,6 +62,11 @@ export default function ManageEntitiesView({
   const [changingTeacher, setChangingTeacher] = useState(false);
   const [newTeacherId, setNewTeacherId] = useState('');
 
+  // Bulk-move states
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [moveTargetClassId, setMoveTargetClassId] = useState('');
+  const [moving, setMoving] = useState(false);
+
   const t = {
     tr: {
       manageEntities: 'Varlıkları Yönet',
@@ -91,6 +96,12 @@ export default function ManageEntitiesView({
       deleteClassConfirm: 'Bu sınıfı silmek istediğinizden emin misiniz? Öğrenciler silinmeyecek.',
       deleteStudent: 'Öğrenciyi Sil',
       deleteStudentConfirm: 'Bu öğrenciyi silmek istediğinizden emin misiniz?',
+      class: 'Sınıf',
+      noClass: 'Sınıfsız',
+      selected: 'seçili',
+      moveTo: 'Şu sınıfa taşı...',
+      move: 'Taşı',
+      selectAll: 'Tümünü seç',
     },
     nl: {
       manageEntities: 'Beheer Entiteiten',
@@ -120,6 +131,12 @@ export default function ManageEntitiesView({
       deleteClassConfirm: 'Weet u zeker dat u deze klas wilt verwijderen? Leerlingen worden niet verwijderd.',
       deleteStudent: 'Leerling Verwijderen',
       deleteStudentConfirm: 'Weet u zeker dat u deze leerling wilt verwijderen?',
+      class: 'Klas',
+      noClass: 'Geen klas',
+      selected: 'geselecteerd',
+      moveTo: 'Verplaats naar klas...',
+      move: 'Verplaatsen',
+      selectAll: 'Alles selecteren',
     },
   };
 
@@ -226,6 +243,37 @@ export default function ManageEntitiesView({
     } catch (error) {
       console.error('Error deleting student:', error);
       alert(language === 'tr' ? 'Hata oluştu!' : 'Er is een fout opgetreden!');
+    }
+  };
+
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudentIds((prev) =>
+      prev.includes(studentId)
+        ? prev.filter((id) => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+
+  const handleMoveStudents = async () => {
+    if (selectedStudentIds.length === 0 || !moveTargetClassId) return;
+
+    setMoving(true);
+    try {
+      await apiRequest('/students/move', {
+        method: 'POST',
+        body: JSON.stringify({
+          studentIds: selectedStudentIds,
+          targetClassId: moveTargetClassId,
+        }),
+      });
+      setSelectedStudentIds([]);
+      setMoveTargetClassId('');
+      onDataChange();
+    } catch (error) {
+      console.error('Error moving students:', error);
+      alert(language === 'tr' ? 'Hata oluştu!' : 'Er is een fout opgetreden!');
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -718,6 +766,8 @@ export default function ManageEntitiesView({
           onClick={() => {
             setSelectedClassId(null);
             setClassEditMode(false);
+            setSelectedStudentIds([]);
+            setMoveTargetClassId('');
           }}
           className="flex items-center gap-2 text-emerald-600 hover:text-emerald-800 transition"
         >
@@ -725,7 +775,11 @@ export default function ManageEntitiesView({
           {text.back}
         </button>
         <button
-          onClick={() => setClassEditMode(!classEditMode)}
+          onClick={() => {
+            setClassEditMode(!classEditMode);
+            setSelectedStudentIds([]);
+            setMoveTargetClassId('');
+          }}
           className={`p-2 rounded-lg transition ${
             classEditMode ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
           }`}
@@ -824,10 +878,55 @@ export default function ManageEntitiesView({
           </div>
         )}
 
+        {/* Bulk-move action bar */}
+        {classEditMode && selectedStudentIds.length > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-sm font-medium text-emerald-800">
+              {selectedStudentIds.length} {text.selected}
+            </span>
+            <div className="flex gap-2 flex-1">
+              <select
+                value={moveTargetClassId}
+                onChange={(e) => setMoveTargetClassId(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+              >
+                <option value="">{text.moveTo}</option>
+                {classes
+                  .filter((cls) => cls.id !== selectedClassId)
+                  .map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                    </option>
+                  ))}
+              </select>
+              <button
+                onClick={handleMoveStudents}
+                disabled={!moveTargetClassId || moving}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50"
+              >
+                {moving ? '...' : text.move}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-emerald-50">
               <tr>
+                {classEditMode && (
+                  <th className="px-4 py-3 text-left w-10">
+                    <input
+                      type="checkbox"
+                      aria-label={text.selectAll}
+                      className="h-4 w-4 accent-emerald-600 cursor-pointer"
+                      checked={classStudents.length > 0 && selectedStudentIds.length === classStudents.length}
+                      onChange={(e) =>
+                        setSelectedStudentIds(e.target.checked ? classStudents.map((s) => s.id) : [])
+                      }
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left text-emerald-800 text-sm">{text.studentName}</th>
                 <th className="px-4 py-3 text-left text-emerald-800 text-sm">{text.parentEmail}</th>
                 <th className="px-4 py-3 text-left text-emerald-800 text-sm">{text.absences}</th>
@@ -838,13 +937,23 @@ export default function ManageEntitiesView({
             <tbody>
               {classStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={classEditMode ? 5 : 4} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={classEditMode ? 6 : 4} className="px-4 py-8 text-center text-gray-500">
                     {language === 'tr' ? 'Bu sınıfta öğrenci yok' : 'Geen leerlingen in deze klas'}
                   </td>
                 </tr>
               ) : (
                 classStudents.map((student) => (
                   <tr key={student.id} className="border-b hover:bg-gray-50">
+                    {classEditMode && (
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-emerald-600 cursor-pointer"
+                          checked={selectedStudentIds.includes(student.id)}
+                          onChange={() => toggleStudentSelection(student.id)}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-sm">
                       <button
                         onClick={() => loadStudentDetails(student.id)}
@@ -952,6 +1061,23 @@ export default function ManageEntitiesView({
                   placeholder={language === 'tr' ? 'veli@email.com' : 'ouder@email.com'}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {text.class}
+                </label>
+                <select
+                  value={editingStudent.classId || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, classId: e.target.value || undefined })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">{text.noClass}</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex gap-3">
                 <button

@@ -494,6 +494,69 @@ app.post("/make-server-6679cacd/students/bulk", async (c) => {
   }
 });
 
+// Move one or more students to a different class (admin only)
+app.post("/make-server-6679cacd/students/move", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'admin') {
+      return c.json({ error: 'Only admins can move students' }, 403);
+    }
+
+    const { studentIds, targetClassId } = await c.req.json();
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+      return c.json({ error: 'studentIds must be a non-empty array' }, 400);
+    }
+
+    // targetClassId may be null to unassign; otherwise it must exist
+    if (targetClassId) {
+      const targetClass = await kv.get(`class:${targetClassId}`);
+      if (!targetClass) {
+        return c.json({ error: 'Target class not found' }, 404);
+      }
+    }
+
+    const moved: string[] = [];
+
+    for (const studentId of studentIds) {
+      const student = await kv.get(`student:${studentId}`);
+      if (!student) continue;
+      if (student.classId === targetClassId) continue; // already there
+
+      // Remove from old class roster
+      if (student.classId) {
+        const oldRoster = await kv.get(`class_students:${student.classId}`) || [];
+        await kv.set(
+          `class_students:${student.classId}`,
+          oldRoster.filter((id: string) => id !== studentId)
+        );
+      }
+
+      // Add to new class roster
+      if (targetClassId) {
+        const newRoster = await kv.get(`class_students:${targetClassId}`) || [];
+        if (!newRoster.includes(studentId)) {
+          await kv.set(`class_students:${targetClassId}`, [...newRoster, studentId]);
+        }
+      }
+
+      await kv.set(`student:${studentId}`, {
+        ...student,
+        classId: targetClassId || null,
+        updatedAt: new Date().toISOString(),
+      });
+      moved.push(studentId);
+    }
+
+    return c.json({ success: true, moved, count: moved.length });
+  } catch (err) {
+    console.log('Move students error:', err);
+    return c.json({ error: 'Failed to move students' }, 500);
+  }
+});
+
 app.get("/make-server-6679cacd/students", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
