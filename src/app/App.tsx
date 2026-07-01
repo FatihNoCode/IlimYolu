@@ -51,9 +51,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [isRecovery, setIsRecovery] = useState(false);
+  const pathSegments = window.location.pathname.split('/');
+  const pageParam = new URLSearchParams(window.location.search).get('page');
+  // Canonical route is /inschrijven; the older /inschrijving path (and page
+  // query param) stay supported so existing links keep working.
   const isInschrijvingPage =
-    window.location.pathname.split('/').includes('inschrijving') ||
-    new URLSearchParams(window.location.search).get('page') === 'inschrijving';
+    pathSegments.includes('inschrijven') ||
+    pathSegments.includes('inschrijving') ||
+    pageParam === 'inschrijven' ||
+    pageParam === 'inschrijving';
 
   const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     const token = accessToken || publicAnonKey;

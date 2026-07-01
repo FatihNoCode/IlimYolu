@@ -242,9 +242,14 @@ export default function InschrijvingPage() {
     setShowSecond(false);
   };
 
-  const F = (props: Omit<FieldProps, 'language' | 'value' | 'error' | 'errorMsg' | 'onChange'>) => (
+  // NOTE: this is a render helper that must be CALLED — e.g. {renderField({...})}
+  // — never used as a JSX component (<renderField />). Using it as a component
+  // would make it a new component type each render, remounting the <input> and
+  // dropping focus on every keystroke.
+  const renderField = (props: Omit<FieldProps, 'language' | 'value' | 'error' | 'errorMsg' | 'onChange'>) => (
     <Field
       {...props}
+      key={props.field}
       language={language}
       value={form[props.field as keyof typeof form]}
       error={!!errors[props.field]}
@@ -335,12 +340,12 @@ export default function InschrijvingPage() {
 
                   {/* Name row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <F label={t.firstName} field="voornaam" />
-                    <F label={t.lastName} field="achternaam" />
+                    {renderField({ label: t.firstName, field: 'voornaam' })}
+                    {renderField({ label: t.lastName, field: 'achternaam' })}
                   </div>
 
                   {/* Age */}
-                  <F label={t.age} field="leeftijd" type="number" placeholder={t.agePlaceholder} />
+                  {renderField({ label: t.age, field: 'leeftijd', type: 'number', placeholder: t.agePlaceholder })}
 
                   {/* Primary contact */}
                   <div className="border-t border-gray-100 pt-5">
@@ -348,10 +353,10 @@ export default function InschrijvingPage() {
                       {t.contactSection}
                     </p>
                     <div className="space-y-4">
-                      <F label={t.contactName} field="contactNaam" placeholder={language === 'nl' ? 'Voor- en achternaam' : 'Ad ve soyad'} />
+                      {renderField({ label: t.contactName, field: 'contactNaam', placeholder: language === 'nl' ? 'Voor- en achternaam' : 'Ad ve soyad' })}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <F label={t.contactPhone} field="contactTelefoon" type="tel" placeholder="+31 6 00000000" />
-                        <F label={t.contactEmail} field="contactEmail" type="email" placeholder="naam@email.com" />
+                        {renderField({ label: t.contactPhone, field: 'contactTelefoon', type: 'tel', placeholder: '+31 6 00000000' })}
+                        {renderField({ label: t.contactEmail, field: 'contactEmail', type: 'email', placeholder: 'naam@email.com' })}
                       </div>
                     </div>
 
@@ -388,10 +393,10 @@ export default function InschrijvingPage() {
                           </button>
                         </div>
                         <div className="space-y-4">
-                          <F label={t.contactName} field="contact2Naam" placeholder={language === 'nl' ? 'Voor- en achternaam' : 'Ad ve soyad'} optional />
+                          {renderField({ label: t.contactName, field: 'contact2Naam', placeholder: language === 'nl' ? 'Voor- en achternaam' : 'Ad ve soyad', optional: true })}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <F label={t.contactPhone} field="contact2Telefoon" type="tel" placeholder="+31 6 00000000" optional />
-                            <F label={t.contactEmail} field="contact2Email" type="email" placeholder="naam@email.com" optional />
+                            {renderField({ label: t.contactPhone, field: 'contact2Telefoon', type: 'tel', placeholder: '+31 6 00000000', optional: true })}
+                            {renderField({ label: t.contactEmail, field: 'contact2Email', type: 'email', placeholder: 'naam@email.com', optional: true })}
                           </div>
                         </div>
                       </div>
