@@ -489,10 +489,10 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
                 }
                 const categoryLabel = (cat: string) => (language === 'tr' ? CATEGORY_LABELS[cat]?.tr : CATEGORY_LABELS[cat]?.nl) || cat;
 
-                // Schoolgeld always applies. Optional products (tas/quran/elifbe)
+                // Schoolgeld always applies. Optional products (tas/quran/elifbe/temel)
                 // only show once the admin has actually logged a payment for them —
                 // not every student buys a bag, a Quran, etc.
-                const optionalProducts = new Set(['tas', 'quran', 'elifbe']);
+                const optionalProducts = new Set(['tas', 'quran', 'elifbe', 'temel']);
                 const visibleCategories = Object.keys(CATEGORY_LABELS).filter(
                   (cat) => !optionalProducts.has(cat) || (paidByCategory[cat] || 0) > 0
                 );
