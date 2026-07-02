@@ -291,8 +291,19 @@ export default function InschrijvingPage() {
       <div className="bg-white shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={faviconUrl} alt="Logo" className="h-9 w-9 object-contain" />
-            <span className="font-bold text-emerald-800 text-lg">Ilim Yolu</span>
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="flex items-center gap-3 cursor-pointer"
+            >
+              <img src={faviconUrl} alt="Logo" className="h-9 w-9 object-contain" />
+              <span className="font-bold text-emerald-800 text-lg">Ilim Yolu</span>
+            </button>
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+            >
+              {language === 'tr' ? 'Giriş Yap' : 'Inloggen'}
+            </button>
           </div>
           <div className="flex gap-2">
             <button
