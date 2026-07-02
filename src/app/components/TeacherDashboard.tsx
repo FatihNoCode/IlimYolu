@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../App';
+import { useHashTab } from '../useHashTab';
 import { translations } from './translations';
 import { quranChapters } from '../../utils/quranData';
 import TeacherManageView from './TeacherManageView';
@@ -27,7 +28,10 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsWithStats, setStudentsWithStats] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'attendance' | 'meldingen' | 'beheer'>('attendance');
+  const [activeTab, setActiveTab] = useHashTab<'attendance' | 'meldingen' | 'beheer'>(
+    'attendance',
+    ['attendance', 'meldingen', 'beheer'] as const,
+  );
 
   // Attendance and Behavior state
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);

@@ -174,6 +174,7 @@ app.post("/make-server-6679cacd/signin", async (c) => {
 
     return c.json({
       accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
       user: { ...userData, id: data.user.id }
     });
   } catch (err) {

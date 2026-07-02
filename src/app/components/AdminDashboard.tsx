@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../App';
+import { useHashTab } from '../useHashTab';
 import { translations } from './translations';
 import { Pencil } from 'lucide-react';
 import ClassSelectionView from './ClassSelectionView';
@@ -61,7 +62,10 @@ interface AdminDashboardProps {
 export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const { language, setLanguage, apiRequest } = useApp();
   const t = translations[language];
-  const [activeTab, setActiveTab] = useState<'metrics' | 'entities' | 'teachers' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen'>('entities');
+  const [activeTab, setActiveTab] = useHashTab<'metrics' | 'entities' | 'teachers' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen'>(
+    'entities',
+    ['entities', 'teachers', 'meldingen', 'boekhouding', 'inschrijvingen', 'settings'] as const,
+  );
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);

@@ -92,6 +92,13 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
         const loginData = await loginResponse.json();
         if (!loginResponse.ok) throw new Error(loginData.error);
 
+        if (loginData.accessToken && loginData.refreshToken) {
+          await supabase.auth.setSession({
+            access_token: loginData.accessToken,
+            refresh_token: loginData.refreshToken,
+          });
+        }
+
         onLogin(loginData.user, loginData.accessToken);
       } else {
         const response = await fetch(`${API_BASE}/signin`, {
@@ -113,6 +120,15 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
           }
           setLoading(false);
           return;
+        }
+
+        // Persist the Supabase session (with refresh token) so the login
+        // survives reloads and browser back-navigation, and auto-refreshes.
+        if (data.accessToken && data.refreshToken) {
+          await supabase.auth.setSession({
+            access_token: data.accessToken,
+            refresh_token: data.refreshToken,
+          });
         }
 
         onLogin(data.user, data.accessToken);

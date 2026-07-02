@@ -62,7 +62,15 @@ export default function App() {
     pageParam === 'inschrijving';
 
   const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
-    const token = accessToken || publicAnonKey;
+    // Prefer the live Supabase session token (auto-refreshed) so long
+    // sessions don't fail with an expired token; fall back to state/anon.
+    let token = accessToken || publicAnonKey;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) token = session.access_token;
+    } catch (err) {
+      // ignore — fall back to existing token
+    }
     const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers: {
