@@ -2523,4 +2523,248 @@ app.post("/make-server-6679cacd/boekhouding/students/bulk", async (c) => {
   }
 });
 
+// ============= OUDERGESPREKKEN (Parent-Teacher Conferences) =============
+
+// Admin creates a conference session for a class
+app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'admin') return c.json({ error: 'Only admins can create conferences' }, 403);
+
+    const { classId, date, startTime, endTime, minutesPerSlot } = await c.req.json();
+    if (!classId || !date || !startTime || !endTime || !minutesPerSlot) {
+      return c.json({ error: 'classId, date, startTime, endTime, minutesPerSlot are required' }, 400);
+    }
+
+    const classData = await kv.get(`class:${classId}`);
+    if (!classData) return c.json({ error: 'Class not found' }, 404);
+
+    // Count students in this class
+    const classStudentIds: string[] = await kv.get(`class_students:${classId}`) || [];
+    const studentCount = classStudentIds.length;
+    const totalMinutesNeeded = studentCount * minutesPerSlot;
+
+    // Parse times and generate slots (only as many as needed for the student count)
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+    const availableMinutes = endMinutes - startMinutes;
+    const effectiveEnd = startMinutes + Math.min(totalMinutesNeeded, availableMinutes);
+
+    const slots: any[] = [];
+    let currentMin = startMinutes;
+    while (currentMin + minutesPerSlot <= effectiveEnd) {
+      const h = Math.floor(currentMin / 60);
+      const m = currentMin % 60;
+      const slotStart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      currentMin += minutesPerSlot;
+      const h2 = Math.floor(currentMin / 60);
+      const m2 = currentMin % 60;
+      const slotEnd = `${String(h2).padStart(2, '0')}:${String(m2).padStart(2, '0')}`;
+      slots.push({ start: slotStart, end: slotEnd, bookedBy: null, studentId: null, studentName: null });
+    }
+
+    const id = crypto.randomUUID();
+    const session = {
+      id,
+      classId,
+      className: classData.name,
+      date,
+      startTime,
+      endTime,
+      minutesPerSlot,
+      studentCount,
+      slots,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`oudergesprek:${id}`, session);
+    const ids: string[] = await kv.get('oudergesprek_ids') || [];
+    await kv.set('oudergesprek_ids', [...ids, id]);
+
+    // Send emails to all parents of students in this class
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    let emailsSent = 0;
+    if (RESEND_API_KEY && classStudentIds.length > 0) {
+      const students = await kv.mget(classStudentIds.map((sid: string) => `student:${sid}`));
+      const parentEmailsSeen = new Set<string>();
+
+      for (const student of students) {
+        if (!student || !student.parentId) continue;
+        const parentData = await getUserData(student.parentId);
+        if (!parentData?.email || parentEmailsSeen.has(parentData.email)) continue;
+        parentEmailsSeen.add(parentData.email);
+
+        const bookingLink = `https://ilimyolu.com`;
+        try {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'Ilim Yolu <info@ilimyolu.com>',
+              to: [parentData.email],
+              subject: `Oudergesprek ${classData.name} - ${date} | Veli Görüşmesi`,
+              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+                <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu - Oudergesprek</h2>
+                <p style="color:#374151;line-height:1.6">Beste ouder,</p>
+                <p style="color:#374151;line-height:1.6">Er is een oudergesprek ingepland voor <strong>klas ${classData.name}</strong> op <strong>${date}</strong>.</p>
+                <p style="color:#374151;line-height:1.6">Tijdsloten zijn beschikbaar van <strong>${startTime}</strong> tot <strong>${slots[slots.length - 1]?.end || endTime}</strong> (${minutesPerSlot} minuten per gesprek).</p>
+                <p style="color:#374151;line-height:1.6">Log in op het ouderportaal om uw tijdslot te kiezen. <strong>Wie het eerst komt, het eerst maalt!</strong></p>
+                <p style="margin:24px 0"><a href="${bookingLink}" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Kies uw tijdslot</a></p>
+                <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
+                <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
+                <p style="color:#374151;line-height:1.6">Sayın veli,</p>
+                <p style="color:#374151;line-height:1.6"><strong>${classData.name}</strong> sınıfı için <strong>${date}</strong> tarihinde veli görüşmesi planlanmıştır.</p>
+                <p style="color:#374151;line-height:1.6">Görüşme saatleri <strong>${startTime}</strong> ile <strong>${slots[slots.length - 1]?.end || endTime}</strong> arasındadır (görüşme başına ${minutesPerSlot} dakika).</p>
+                <p style="color:#374151;line-height:1.6">Zaman dilimi seçmek için veli portalına giriş yapın. <strong>İlk gelen, ilk alır!</strong></p>
+                <p style="margin:24px 0"><a href="${bookingLink}" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Zaman dilimi seçin</a></p>
+                <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
+                <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Ilim Yolu leerlingvolgsysteem.</p>
+              </div>`,
+            }),
+          });
+          emailsSent++;
+        } catch (emailErr) {
+          console.log(`Failed to send oudergesprek email to ${parentData.email}:`, emailErr);
+        }
+      }
+    }
+
+    return c.json({ success: true, session, emailsSent });
+  } catch (err) {
+    console.log('Create oudergesprek error:', err);
+    return c.json({ error: 'Failed to create conference' }, 500);
+  }
+});
+
+// List all conference sessions
+app.get("/make-server-6679cacd/oudergesprekken", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+
+    const ids: string[] = await kv.get('oudergesprek_ids') || [];
+    if (ids.length === 0) return c.json({ sessions: [] });
+
+    const allSessions = await kv.mget(ids.map((id: string) => `oudergesprek:${id}`));
+    let sessions = allSessions.filter((s: any) => s && s.id);
+
+    if (userData?.role === 'teacher') {
+      const teacherClassIds: string[] = await kv.get(`teacher_classes:${user.id}`) || [];
+      sessions = sessions.filter((s: any) => teacherClassIds.includes(s.classId));
+    } else if (userData?.role === 'parent') {
+      const childrenIds: string[] = await kv.get(`parent_children:${user.id}`) || [];
+      const children = await kv.mget(childrenIds.map((id: string) => `student:${id}`));
+      const parentClassIds = new Set(children.filter((c: any) => c?.classId).map((c: any) => c.classId));
+      sessions = sessions.filter((s: any) => parentClassIds.has(s.classId));
+    }
+
+    sessions.sort((a: any, b: any) => b.date.localeCompare(a.date));
+    return c.json({ sessions });
+  } catch (err) {
+    console.log('Get oudergesprekken error:', err);
+    return c.json({ error: 'Failed to get conferences' }, 500);
+  }
+});
+
+// Get a single conference session
+app.get("/make-server-6679cacd/oudergesprekken/:id", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+
+    const id = c.req.param('id');
+    const session = await kv.get(`oudergesprek:${id}`);
+    if (!session) return c.json({ error: 'Not found' }, 404);
+
+    return c.json({ session });
+  } catch (err) {
+    console.log('Get oudergesprek error:', err);
+    return c.json({ error: 'Failed to get conference' }, 500);
+  }
+});
+
+// Parent books a time slot
+app.post("/make-server-6679cacd/oudergesprekken/:id/book", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'parent') return c.json({ error: 'Only parents can book slots' }, 403);
+
+    const id = c.req.param('id');
+    const { slotIndex, studentId } = await c.req.json();
+
+    // Re-fetch the latest version to avoid race conditions
+    const session = await kv.get(`oudergesprek:${id}`);
+    if (!session) return c.json({ error: 'Conference not found' }, 404);
+
+    if (slotIndex < 0 || slotIndex >= session.slots.length) {
+      return c.json({ error: 'Invalid slot index' }, 400);
+    }
+
+    // Verify parent owns this student
+    const childrenIds: string[] = await kv.get(`parent_children:${user.id}`) || [];
+    if (!childrenIds.includes(studentId)) {
+      return c.json({ error: 'Not your child' }, 403);
+    }
+
+    const student = await kv.get(`student:${studentId}`);
+    if (!student) return c.json({ error: 'Student not found' }, 404);
+
+    // Check if slot is still available
+    if (session.slots[slotIndex].bookedBy) {
+      return c.json({ error: 'Slot already booked' }, 409);
+    }
+
+    // Check if this parent already booked a slot for this student in this session
+    const alreadyBooked = session.slots.find(
+      (s: any) => s.studentId === studentId
+    );
+    if (alreadyBooked) {
+      return c.json({ error: 'Already booked for this student' }, 409);
+    }
+
+    // Book the slot
+    session.slots[slotIndex] = {
+      ...session.slots[slotIndex],
+      bookedBy: user.id,
+      studentId,
+      studentName: student.name,
+      bookedAt: new Date().toISOString(),
+    };
+
+    await kv.set(`oudergesprek:${id}`, session);
+
+    return c.json({ success: true, slot: session.slots[slotIndex] });
+  } catch (err) {
+    console.log('Book oudergesprek slot error:', err);
+    return c.json({ error: 'Failed to book slot' }, 500);
+  }
+});
+
+// Admin deletes a conference session
+app.delete("/make-server-6679cacd/oudergesprekken/:id", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'admin') return c.json({ error: 'Only admins can delete conferences' }, 403);
+
+    const id = c.req.param('id');
+    await kv.del(`oudergesprek:${id}`);
+    const ids: string[] = await kv.get('oudergesprek_ids') || [];
+    await kv.set('oudergesprek_ids', ids.filter((i: string) => i !== id));
+
+    return c.json({ success: true });
+  } catch (err) {
+    console.log('Delete oudergesprek error:', err);
+    return c.json({ error: 'Failed to delete conference' }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

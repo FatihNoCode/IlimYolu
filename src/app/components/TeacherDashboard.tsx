@@ -28,10 +28,12 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsWithStats, setStudentsWithStats] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useHashTab<'attendance' | 'meldingen' | 'beheer'>(
+  const [activeTab, setActiveTab] = useHashTab<'attendance' | 'meldingen' | 'beheer' | 'oudergesprekken'>(
     'attendance',
-    ['attendance', 'meldingen', 'beheer'] as const,
+    ['attendance', 'meldingen', 'beheer', 'oudergesprekken'] as const,
   );
+  const [conferSessions, setConferSessions] = useState<any[]>([]);
+  const [conferExpanded, setConferExpanded] = useState<string | null>(null);
 
   // Attendance and Behavior state
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
@@ -83,6 +85,9 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
   useEffect(() => {
     if (activeTab === 'beheer' && students.length > 0) {
       loadStudentStats();
+    }
+    if (activeTab === 'oudergesprekken') {
+      apiRequest('/oudergesprekken').then((d) => setConferSessions(d.sessions || [])).catch(() => {});
     }
   }, [activeTab, students]);
 
@@ -463,6 +468,16 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
                 }`}
               >
                 Beheer
+              </button>
+              <button
+                onClick={() => setActiveTab('oudergesprekken')}
+                className={`pb-2 sm:pb-3 px-2 sm:px-3 md:px-4 font-semibold transition whitespace-nowrap text-xs sm:text-sm md:text-base ${
+                  activeTab === 'oudergesprekken'
+                    ? 'border-b-2 border-emerald-600 text-emerald-600'
+                    : 'text-gray-500'
+                }`}
+              >
+                {language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
               </button>
             </div>
 
@@ -974,6 +989,65 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
                 language={language}
                 apiRequest={apiRequest}
               />
+            )}
+
+            {/* ─── OUDERGESPREKKEN TAB ─── */}
+            {activeTab === 'oudergesprekken' && (
+              <div>
+                <h3 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-4">
+                  {language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
+                </h3>
+                {conferSessions.length === 0 ? (
+                  <p className="text-gray-400 text-sm">
+                    {language === 'tr' ? 'Henüz planlanmış veli görüşmesi yok.' : 'Nog geen oudergesprekken gepland.'}
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {conferSessions.map((session: any) => {
+                      const booked = session.slots.filter((s: any) => s.bookedBy).length;
+                      const total = session.slots.length;
+                      const isExpanded = conferExpanded === session.id;
+                      return (
+                        <div key={session.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <div
+                            onClick={() => setConferExpanded(isExpanded ? null : session.id)}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition gap-2"
+                          >
+                            <div>
+                              <h4 className="font-semibold text-emerald-800">{session.className}</h4>
+                              <p className="text-sm text-gray-500">
+                                {session.date} &middot; {session.startTime} - {session.slots[session.slots.length - 1]?.end || session.endTime}
+                                &middot; {session.minutesPerSlot} min
+                              </p>
+                            </div>
+                            <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+                              booked === total ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {booked}/{total} {language === 'tr' ? 'dolu' : 'geboekt'}
+                            </span>
+                          </div>
+                          {isExpanded && (
+                            <div className="border-t border-gray-200 p-4 bg-gray-50">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                {session.slots.map((slot: any, i: number) => (
+                                  <div key={i} className={`p-3 rounded-lg text-sm ${slot.bookedBy ? 'bg-emerald-50 border border-emerald-200' : 'bg-white border border-gray-200'}`}>
+                                    <p className="font-medium">{slot.start} - {slot.end}</p>
+                                    {slot.bookedBy ? (
+                                      <p className="text-emerald-700 text-xs mt-1">{slot.studentName}</p>
+                                    ) : (
+                                      <p className="text-gray-400 text-xs mt-1">{language === 'tr' ? 'Boş' : 'Vrij'}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

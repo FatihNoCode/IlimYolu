@@ -1,0 +1,297 @@
+import { useState, useEffect } from 'react';
+
+interface Class {
+  id: string;
+  name: string;
+}
+
+interface Slot {
+  start: string;
+  end: string;
+  bookedBy: string | null;
+  studentId: string | null;
+  studentName: string | null;
+}
+
+interface Session {
+  id: string;
+  classId: string;
+  className: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  minutesPerSlot: number;
+  studentCount: number;
+  slots: Slot[];
+  createdAt: string;
+}
+
+interface OudergesprekkenViewProps {
+  classes: Class[];
+  language: 'tr' | 'nl';
+  apiRequest: (endpoint: string, options?: RequestInit) => Promise<any>;
+}
+
+export default function OudergesprekkenView({ classes, language, apiRequest }: OudergesprekkenViewProps) {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  // Form state
+  const [classId, setClassId] = useState('');
+  const [date, setDate] = useState('');
+  const [startTime, setStartTime] = useState('10:00');
+  const [endTime, setEndTime] = useState('13:00');
+  const [minutesPerSlot, setMinutesPerSlot] = useState(10);
+
+  // Expanded session details
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  const loadSessions = async () => {
+    try {
+      const data = await apiRequest('/oudergesprekken');
+      setSessions(data.sessions || []);
+    } catch (err) {
+      console.error('Error loading conferences:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createSession = async () => {
+    if (!classId || !date || !startTime || !endTime) {
+      alert(language === 'tr' ? 'Tüm alanları doldurun' : 'Vul alle velden in');
+      return;
+    }
+    setCreating(true);
+    try {
+      const result = await apiRequest('/oudergesprekken', {
+        method: 'POST',
+        body: JSON.stringify({ classId, date, startTime, endTime, minutesPerSlot }),
+      });
+      alert(
+        language === 'tr'
+          ? `Veli görüşmesi oluşturuldu! ${result.emailsSent} e-posta gönderildi.`
+          : `Oudergesprek aangemaakt! ${result.emailsSent} e-mail(s) verstuurd.`
+      );
+      setClassId('');
+      setDate('');
+      loadSessions();
+    } catch (err: any) {
+      alert(err.message || 'Error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteSession = async (id: string) => {
+    if (!confirm(language === 'tr' ? 'Bu veli görüşmesini silmek istiyor musunuz?' : 'Wilt u dit oudergesprek verwijderen?')) return;
+    try {
+      await apiRequest(`/oudergesprekken/${id}`, { method: 'DELETE' });
+      loadSessions();
+    } catch (err: any) {
+      alert(err.message || 'Error');
+    }
+  };
+
+  // Calculate a preview of how many slots would be generated
+  const selectedClass = classes.find((c) => c.id === classId);
+  const previewSlotCount = (() => {
+    if (!startTime || !endTime || !minutesPerSlot) return 0;
+    const [sH, sM] = startTime.split(':').map(Number);
+    const [eH, eM] = endTime.split(':').map(Number);
+    const available = (eH * 60 + eM) - (sH * 60 + sM);
+    return Math.floor(available / minutesPerSlot);
+  })();
+
+  return (
+    <div>
+      {/* Create new conference */}
+      <div className="bg-gray-50 p-4 sm:p-6 rounded-lg mb-6">
+        <h3 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-4">
+          {language === 'tr' ? 'Yeni Veli Görüşmesi Oluştur' : 'Nieuw Oudergesprek Aanmaken'}
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {language === 'tr' ? 'Sınıf' : 'Klas'}
+            </label>
+            <select
+              value={classId}
+              onChange={(e) => setClassId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            >
+              <option value="">{language === 'tr' ? 'Sınıf seçin' : 'Selecteer klas'}</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {language === 'tr' ? 'Tarih' : 'Datum'}
+            </label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {language === 'tr' ? 'Başlangıç Saati' : 'Starttijd'}
+            </label>
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {language === 'tr' ? 'Bitiş Saati' : 'Eindtijd'}
+            </label>
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {language === 'tr' ? 'Görüşme Süresi (dakika)' : 'Tijd per gesprek (minuten)'}
+            </label>
+            <input
+              type="number"
+              min={5}
+              max={60}
+              step={5}
+              value={minutesPerSlot}
+              onChange={(e) => setMinutesPerSlot(parseInt(e.target.value) || 10)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+            />
+          </div>
+        </div>
+
+        {/* Preview info */}
+        {classId && previewSlotCount > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-sm">
+            <p className="text-emerald-800">
+              {language === 'tr'
+                ? `${previewSlotCount} zaman dilimi oluşturulacak (${startTime} - ${endTime}, ${minutesPerSlot} dk/görüşme). Öğrenci sayısına göre yalnızca gerekli kadar dilim açılacak.`
+                : `${previewSlotCount} tijdsloten beschikbaar (${startTime} - ${endTime}, ${minutesPerSlot} min/gesprek). Het systeem maakt alleen zoveel slots als nodig voor het aantal leerlingen.`}
+            </p>
+            <p className="text-emerald-700 mt-1 font-medium">
+              {language === 'tr'
+                ? 'Oluşturulunca tüm velilere e-posta gönderilecek.'
+                : 'Na aanmaken wordt er een e-mail verstuurd naar alle ouders.'}
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={createSession}
+          disabled={creating || !classId || !date}
+          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg transition disabled:opacity-50 text-sm"
+        >
+          {creating
+            ? (language === 'tr' ? 'Oluşturuluyor & E-posta gönderiliyor...' : 'Aanmaken & E-mails versturen...')
+            : (language === 'tr' ? 'Oluştur & Velilere Bildir' : 'Aanmaken & Ouders Informeren')}
+        </button>
+      </div>
+
+      {/* List existing sessions */}
+      <div>
+        <h3 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-4">
+          {language === 'tr' ? 'Mevcut Veli Görüşmeleri' : 'Bestaande Oudergesprekken'}
+        </h3>
+
+        {loading ? (
+          <p className="text-gray-400 text-sm">{language === 'tr' ? 'Yükleniyor...' : 'Laden...'}</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-gray-400 text-sm">
+            {language === 'tr' ? 'Henüz veli görüşmesi oluşturulmadı.' : 'Nog geen oudergesprekken aangemaakt.'}
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {sessions.map((session) => {
+              const booked = session.slots.filter((s) => s.bookedBy).length;
+              const total = session.slots.length;
+              const isExpanded = expandedId === session.id;
+
+              return (
+                <div key={session.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div
+                    onClick={() => setExpandedId(isExpanded ? null : session.id)}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition gap-2"
+                  >
+                    <div>
+                      <h4 className="font-semibold text-emerald-800">{session.className}</h4>
+                      <p className="text-sm text-gray-500">
+                        {session.date} &middot; {session.startTime} - {session.slots[session.slots.length - 1]?.end || session.endTime}
+                        &middot; {session.minutesPerSlot} min
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+                        booked === total
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {booked}/{total} {language === 'tr' ? 'dolu' : 'geboekt'}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteSession(session.id); }}
+                        className="text-red-500 hover:text-red-700 text-sm"
+                      >
+                        {language === 'tr' ? 'Sil' : 'Verwijder'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-gray-200 p-4 bg-gray-50">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        {session.slots.map((slot, i) => (
+                          <div
+                            key={i}
+                            className={`p-3 rounded-lg text-sm ${
+                              slot.bookedBy
+                                ? 'bg-emerald-50 border border-emerald-200'
+                                : 'bg-white border border-gray-200'
+                            }`}
+                          >
+                            <p className="font-medium">{slot.start} - {slot.end}</p>
+                            {slot.bookedBy ? (
+                              <p className="text-emerald-700 text-xs mt-1">{slot.studentName}</p>
+                            ) : (
+                              <p className="text-gray-400 text-xs mt-1">
+                                {language === 'tr' ? 'Boş' : 'Vrij'}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

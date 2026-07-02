@@ -9,6 +9,7 @@ import ManageEntitiesView from './ManageEntitiesView';
 import BoekhoudingView from './BoekhoudingView';
 import InschrijvingenView from './InschrijvingenView';
 import AbsenceOverviewView from './AbsenceOverviewView';
+import OudergesprekkenView from './OudergesprekkenView';
 
 interface Metrics {
   totalStudents: number;
@@ -62,9 +63,9 @@ interface AdminDashboardProps {
 export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const { language, setLanguage, apiRequest } = useApp();
   const t = translations[language];
-  const [activeTab, setActiveTab] = useHashTab<'metrics' | 'entities' | 'teachers' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen'>(
+  const [activeTab, setActiveTab] = useHashTab<'metrics' | 'entities' | 'teachers' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen' | 'oudergesprekken'>(
     'entities',
-    ['entities', 'teachers', 'meldingen', 'boekhouding', 'inschrijvingen', 'settings'] as const,
+    ['entities', 'teachers', 'meldingen', 'boekhouding', 'inschrijvingen', 'oudergesprekken', 'settings'] as const,
   );
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -490,6 +491,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
               }`}
             >
               {language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen'}
+            </button>
+            <button
+              onClick={() => setActiveTab('oudergesprekken')}
+              className={`pb-2 sm:pb-3 px-2 sm:px-3 md:px-4 font-semibold transition whitespace-nowrap text-xs sm:text-sm md:text-base ${
+                activeTab === 'oudergesprekken'
+                  ? 'border-b-2 border-emerald-600 text-emerald-600'
+                  : 'text-gray-500'
+              }`}
+            >
+              {language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
             </button>
             <button
               onClick={() => setActiveTab('settings')}
@@ -1113,6 +1124,14 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
           {activeTab === 'inschrijvingen' && (
             <InschrijvingenView
+              language={language}
+              apiRequest={apiRequest}
+            />
+          )}
+
+          {activeTab === 'oudergesprekken' && (
+            <OudergesprekkenView
+              classes={classes}
               language={language}
               apiRequest={apiRequest}
             />

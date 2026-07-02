@@ -48,6 +48,8 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   const [loadingChild, setLoadingChild] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [conferSessions, setConferSessions] = useState<any[]>([]);
+  const [bookingSessionId, setBookingSessionId] = useState<string | null>(null);
   const [showAbsenceModal, setShowAbsenceModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [absenceDate, setAbsenceDate] = useState('');
@@ -110,12 +112,14 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
 
   const loadData = async () => {
     try {
-      const [studentsData, homeworkData, classesData, completionData] = await Promise.all([
+      const [studentsData, homeworkData, classesData, completionData, conferData] = await Promise.all([
         apiRequest('/students'),
         apiRequest('/homework'),
         apiRequest('/classes/all'),
         apiRequest('/homework/completion'),
+        apiRequest('/oudergesprekken').catch(() => ({ sessions: [] })),
       ]);
+      setConferSessions(conferData.sessions || []);
 
       // Build a map of class IDs to class names
       const classMap: Record<string, Class> = {};
@@ -246,6 +250,28 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
       setShowStats(studentId);
     } catch (error) {
       console.error('Error loading stats:', error);
+    }
+  };
+
+  const bookSlot = async (sessionId: string, slotIndex: number) => {
+    if (!selectedChildId) return;
+    try {
+      await apiRequest(`/oudergesprekken/${sessionId}/book`, {
+        method: 'POST',
+        body: JSON.stringify({ slotIndex, studentId: selectedChildId }),
+      });
+      alert(language === 'tr' ? 'Zaman dilimi rezerve edildi!' : 'Tijdslot geboekt!');
+      setBookingSessionId(null);
+      // Refresh sessions
+      const conferData = await apiRequest('/oudergesprekken').catch(() => ({ sessions: [] }));
+      setConferSessions(conferData.sessions || []);
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.includes('already booked') || msg.includes('Already booked')) {
+        alert(language === 'tr' ? 'Bu zaman dilimi zaten dolu veya zaten rezerve edilmiş.' : 'Dit tijdslot is al bezet of u heeft al geboekt.');
+      } else {
+        alert(msg || 'Error');
+      }
     }
   };
 
@@ -456,6 +482,75 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Oudergesprekken — show available conferences for this child's class */}
+        {selectedChild && conferSessions.filter((s) => s.classId === selectedChild.classId).length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
+            <h2 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-3">
+              {language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
+            </h2>
+            <div className="space-y-4">
+              {conferSessions
+                .filter((s) => s.classId === selectedChild.classId)
+                .map((session: any) => {
+                  const myBooking = session.slots.find((s: any) => s.studentId === selectedChild.id);
+                  const isExpanded = bookingSessionId === session.id;
+                  return (
+                    <div key={session.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-2">
+                        <div>
+                          <h4 className="font-semibold text-emerald-800">{session.className}</h4>
+                          <p className="text-sm text-gray-500">
+                            {session.date} &middot; {session.minutesPerSlot} min {language === 'tr' ? '/ görüşme' : '/ gesprek'}
+                          </p>
+                        </div>
+                        {myBooking ? (
+                          <span className="text-sm font-medium px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
+                            ✓ {myBooking.start} - {myBooking.end}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setBookingSessionId(isExpanded ? null : session.id)}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-semibold"
+                          >
+                            {language === 'tr' ? 'Zaman Dilimi Seç' : 'Kies Tijdslot'}
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && !myBooking && (
+                        <div className="border-t border-gray-200 p-4 bg-gray-50">
+                          <p className="text-sm text-gray-600 mb-3">
+                            {language === 'tr' ? 'Boş bir zaman dilimi seçin:' : 'Kies een vrij tijdslot:'}
+                          </p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                            {session.slots.map((slot: any, i: number) => (
+                              <button
+                                key={i}
+                                disabled={!!slot.bookedBy}
+                                onClick={() => bookSlot(session.id, i)}
+                                className={`p-3 rounded-lg text-sm font-medium transition ${
+                                  slot.bookedBy
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-white border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-500'
+                                }`}
+                              >
+                                {slot.start} - {slot.end}
+                                {slot.bookedBy && (
+                                  <span className="block text-xs text-gray-400 mt-0.5">
+                                    {language === 'tr' ? 'Dolu' : 'Bezet'}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </div>
         )}
