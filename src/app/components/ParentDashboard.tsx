@@ -488,8 +488,17 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
                   paidByCategory[p.category] = (paidByCategory[p.category] || 0) + (Number(p.amount) || 0);
                 }
                 const categoryLabel = (cat: string) => (language === 'tr' ? CATEGORY_LABELS[cat]?.tr : CATEGORY_LABELS[cat]?.nl) || cat;
-                const totalPaid = Object.values(paidByCategory).reduce((s, v) => s + v, 0);
-                const totalDue = Object.values(prices).reduce((s, v) => s + v, 0);
+
+                // Schoolgeld always applies. Optional products (tas/quran/elifbe)
+                // only show once the admin has actually logged a payment for them —
+                // not every student buys a bag, a Quran, etc.
+                const optionalProducts = new Set(['tas', 'quran', 'elifbe']);
+                const visibleCategories = Object.keys(CATEGORY_LABELS).filter(
+                  (cat) => !optionalProducts.has(cat) || (paidByCategory[cat] || 0) > 0
+                );
+
+                const totalPaid = visibleCategories.reduce((s, cat) => s + (paidByCategory[cat] || 0), 0);
+                const totalDue = visibleCategories.reduce((s, cat) => s + (prices[cat] || 0), 0);
 
                 return (
                   <div className="space-y-5">
@@ -510,7 +519,7 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
                         {language === 'tr' ? 'Kalem Bazında Durum' : 'Overzicht per post'}
                       </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {Object.keys(CATEGORY_LABELS).map((cat) => {
+                        {visibleCategories.map((cat) => {
                           const paid = paidByCategory[cat] || 0;
                           const due = prices[cat] || 0;
                           const isFull = paid >= due && due > 0;
