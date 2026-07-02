@@ -290,22 +290,20 @@ export default function InschrijvingPage() {
       {/* Header */}
       <div className="bg-white shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.href = '/'; }}
+            className="flex items-center gap-3 cursor-pointer"
+          >
+            <img src={faviconUrl} alt="Logo" className="h-9 w-9 object-contain" />
+            <span className="font-bold text-emerald-800 text-lg">Ilim Yolu</span>
+          </button>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => { window.location.href = '/'; }}
-              className="flex items-center gap-3 cursor-pointer"
-            >
-              <img src={faviconUrl} alt="Logo" className="h-9 w-9 object-contain" />
-              <span className="font-bold text-emerald-800 text-lg">Ilim Yolu</span>
-            </button>
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+              className="px-3 py-1 rounded text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition"
             >
               {language === 'tr' ? 'Giriş Yap' : 'Inloggen'}
             </button>
-          </div>
-          <div className="flex gap-2">
             <button
               onClick={() => setLanguage('nl')}
               className={`px-3 py-1 rounded text-sm font-medium transition ${language === 'nl' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}

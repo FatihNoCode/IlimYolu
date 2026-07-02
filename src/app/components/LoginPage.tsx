@@ -170,9 +170,7 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
 
   const BrandMark = () => (
     <div className="flex flex-col items-center mb-6">
-      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-3 shadow-lg shadow-emerald-900/10 mb-3">
-        <img src={booksLogo} alt="Ilim Yolu" className="h-8 w-8 object-contain" />
-      </div>
+      <img src={booksLogo} alt="Ilim Yolu" className="h-14 w-14 object-contain mb-3" />
       <h1 className="text-xl font-bold text-gray-800 tracking-tight">Ilim Yolu</h1>
     </div>
   );
