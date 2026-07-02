@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Settings, X, Check, ChevronDown, ChevronUp, Euro, Trash2, Plus } from 'lucide-react';
+import { Search, Settings, X, Check, ChevronDown, ChevronUp, Euro, Trash2, Plus, Pencil } from 'lucide-react';
 
 interface Student {
   id: string;
@@ -111,6 +111,11 @@ export default function BoekhoudingView({ classes, students, language, apiReques
   const [savingLog, setSavingLog] = useState(false);
   const [savingLabel, setSavingLabel] = useState<string | null>(null);
 
+  // Editing an existing log entry inline
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ date: '', category: 'schoolgeld', amount: '', note: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const isMounted = useRef(true);
 
   const nl = (tr: string, dutch: string) => language === 'tr' ? tr : dutch;
@@ -172,6 +177,47 @@ export default function BoekhoudingView({ classes, students, language, apiReques
       alert(nl('Hata oluştu!', 'Er is een fout opgetreden!'));
     } finally {
       setSavingLog(false);
+    }
+  };
+
+  const startEditLogEntry = (entry: PaymentLogEntry) => {
+    setEditingId(entry.id);
+    setEditForm({ date: entry.date, category: entry.category, amount: String(entry.amount), note: entry.note || '' });
+  };
+
+  const cancelEditLogEntry = () => {
+    setEditingId(null);
+    setEditForm({ date: '', category: 'schoolgeld', amount: '', note: '' });
+  };
+
+  const saveEditLogEntry = async (entry: PaymentLogEntry) => {
+    if (!editForm.date || !editForm.amount) {
+      alert(nl('Lütfen tüm zorunlu alanları doldurun', 'Vul alle verplichte velden in'));
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await apiRequest(`/boekhouding/payments/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          studentId: entry.studentId,
+          date: editForm.date,
+          category: editForm.category,
+          amount: Math.max(0, Number(editForm.amount) || 0),
+          note: editForm.note,
+        }),
+      });
+      if (res.entry) {
+        setLogEntries(prev => prev.map(e => (e.id === entry.id ? res.entry : e)));
+      }
+      if (res.record) {
+        setRecords(prev => ({ ...prev, [entry.studentId]: res.record }));
+      }
+      cancelEditLogEntry();
+    } catch (e) {
+      alert(nl('Hata oluştu!', 'Er is een fout opgetreden!'));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -547,20 +593,78 @@ export default function BoekhoudingView({ classes, students, language, apiReques
                     <tr><td colSpan={6} className="text-center py-8 text-gray-400">{nl('Henüz kayıt yok', 'Nog geen betalingen gelogd')}</td></tr>
                   ) : (
                     logEntries.map(entry => (
-                      <tr key={entry.id} className="hover:bg-gray-50">
-                        <td className="border border-gray-200 px-3 py-2 text-gray-700 whitespace-nowrap">
-                          {new Date(entry.date).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'nl-NL')}
-                        </td>
-                        <td className="border border-gray-200 px-3 py-2 font-medium text-gray-800">{studentName(entry.studentId)}</td>
-                        <td className="border border-gray-200 px-3 py-2 text-gray-700">{categoryLabel(entry.category)}</td>
-                        <td className="border border-gray-200 px-3 py-2 text-right font-semibold text-emerald-700">€{Number(entry.amount).toFixed(2)}</td>
-                        <td className="border border-gray-200 px-3 py-2 text-gray-500">{entry.note || '—'}</td>
-                        <td className="border border-gray-200 px-3 py-2 text-center">
-                          <button onClick={() => deleteLogEntry(entry.id, entry.studentId)} className="text-gray-400 hover:text-red-600" title={nl('Sil', 'Verwijderen')}>
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
+                      editingId === entry.id ? (
+                        <tr key={entry.id} className="bg-emerald-50/50">
+                          <td className="border border-gray-200 px-2 py-1.5">
+                            <input
+                              type="date"
+                              value={editForm.date}
+                              onChange={e => setEditForm(prev => ({ ...prev, date: e.target.value }))}
+                              className="w-full px-1.5 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="border border-gray-200 px-3 py-2 font-medium text-gray-800">{studentName(entry.studentId)}</td>
+                          <td className="border border-gray-200 px-2 py-1.5">
+                            <select
+                              value={editForm.category}
+                              onChange={e => setEditForm(prev => ({ ...prev, category: e.target.value }))}
+                              className="w-full px-1.5 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              {Object.keys(CATEGORY_LABELS).map(cat => (
+                                <option key={cat} value={cat}>{categoryLabel(cat)}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="border border-gray-200 px-2 py-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              value={editForm.amount}
+                              onChange={e => setEditForm(prev => ({ ...prev, amount: e.target.value }))}
+                              className="w-full px-1.5 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="border border-gray-200 px-2 py-1.5">
+                            <input
+                              type="text"
+                              value={editForm.note}
+                              onChange={e => setEditForm(prev => ({ ...prev, note: e.target.value }))}
+                              className="w-full px-1.5 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                          </td>
+                          <td className="border border-gray-200 px-3 py-2 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => saveEditLogEntry(entry)}
+                              disabled={savingEdit}
+                              className="text-emerald-600 hover:text-emerald-800 disabled:opacity-50 mr-2"
+                              title={nl('Kaydet', 'Opslaan')}
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button onClick={cancelEditLogEntry} className="text-gray-400 hover:text-gray-600" title={nl('İptal', 'Annuleren')}>
+                              <X className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="border border-gray-200 px-3 py-2 text-gray-700 whitespace-nowrap">
+                            {new Date(entry.date).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'nl-NL')}
+                          </td>
+                          <td className="border border-gray-200 px-3 py-2 font-medium text-gray-800">{studentName(entry.studentId)}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-gray-700">{categoryLabel(entry.category)}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-right font-semibold text-emerald-700">€{Number(entry.amount).toFixed(2)}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-gray-500">{entry.note || '—'}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-center whitespace-nowrap">
+                            <button onClick={() => startEditLogEntry(entry)} className="text-gray-400 hover:text-emerald-600 mr-2" title={nl('Düzenle', 'Bewerken')}>
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => deleteLogEntry(entry.id, entry.studentId)} className="text-gray-400 hover:text-red-600" title={nl('Sil', 'Verwijderen')}>
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
                     ))
                   )}
                 </tbody>

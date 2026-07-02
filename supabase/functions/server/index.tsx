@@ -2643,6 +2643,54 @@ app.get("/make-server-6679cacd/boekhouding/payments/:studentId", async (c) => {
   }
 });
 
+app.put("/make-server-6679cacd/boekhouding/payments/:id", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'admin') return c.json({ error: 'Only admins can edit payment log entries' }, 403);
+
+    const id = c.req.param('id');
+    const existing = await kv.get(`boekhouding_payment:${id}`);
+    if (!existing) return c.json({ error: 'Payment not found' }, 404);
+
+    const { studentId, date, category, amount, note } = await c.req.json();
+    if (!studentId || !date || !category || amount === undefined) {
+      return c.json({ error: 'studentId, date, category, amount are required' }, 400);
+    }
+    const validCategories = ['schoolgeld', 'tas', 'quran', 'elifbe', 'temel'];
+    if (!validCategories.includes(category)) {
+      return c.json({ error: 'Invalid category' }, 400);
+    }
+    if (studentId !== existing.studentId) {
+      const student = await kv.get(`student:${studentId}`);
+      if (!student) return c.json({ error: 'Student not found' }, 404);
+    }
+
+    const updatedEntry = {
+      ...existing,
+      studentId,
+      date,
+      category,
+      amount: Number(amount),
+      note: note || '',
+      updatedBy: user.id,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`boekhouding_payment:${id}`, updatedEntry);
+
+    // Recompute both the old and new student's summary in case the entry
+    // was reassigned to a different student.
+    const record = await recomputeStudentBoekhouding(studentId);
+    if (studentId !== existing.studentId) await recomputeStudentBoekhouding(existing.studentId);
+
+    return c.json({ success: true, entry: updatedEntry, record });
+  } catch (err) {
+    console.log('Update boekhouding payment error:', err);
+    return c.json({ error: 'Failed to update payment' }, 500);
+  }
+});
+
 app.delete("/make-server-6679cacd/boekhouding/payments/:id", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
