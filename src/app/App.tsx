@@ -13,6 +13,7 @@ const SuperAdminDashboard = lazy(() => import('./components/SuperAdminDashboard'
 const InvitePage = lazy(() => import('./components/InvitePage'));
 const InschrijvingPage = lazy(() => import('./components/InschrijvingPage'));
 const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
+const ElifBaPage = lazy(() => import('./components/ElifBaPage'));
 
 const supabase = getSupabaseClient();
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
@@ -65,6 +66,10 @@ export default function App() {
     pathSegments.includes('inschrijving') ||
     pageParam === 'inschrijven' ||
     pageParam === 'inschrijving';
+
+  const isElifBaPage =
+    pathSegments.includes('elif-ba') ||
+    pageParam === 'elif-ba';
 
   const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     // Prefer the live Supabase session token (auto-refreshed) so long
@@ -152,6 +157,12 @@ export default function App() {
       return;
     }
 
+    // Elif-Ba learning app — no login needed
+    if (pathParts.includes('elif-ba') || urlParams.get('page') === 'elif-ba') {
+      setLoading(false);
+      return;
+    }
+
     checkSession();
     return;
   }, []);
@@ -229,6 +240,8 @@ export default function App() {
         >
           {isRecovery ? (
             <ResetPasswordPage language={language} onDone={() => setIsRecovery(false)} />
+          ) : isElifBaPage ? (
+            <ElifBaPage onBack={() => window.history.pushState({}, '', '/')} />
           ) : isInschrijvingPage ? (
             <InschrijvingPage />
           ) : inviteToken ? (

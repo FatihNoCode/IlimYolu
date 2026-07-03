@@ -370,10 +370,19 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
           )}
         </div>
 
+        {/* Elif-Ba learning game — no login needed */}
+        <button
+          onClick={() => { window.location.href = '/elif-ba'; }}
+          className="w-full flex items-center justify-center gap-2 mt-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-bold py-4 rounded-2xl shadow-lg transition text-sm sm:text-base"
+        >
+          <span style={{ fontFamily: 'serif', fontSize: 20 }}>أ ب</span>
+          {language === 'tr' ? 'Elif-Be Öğren 🌟' : 'Elif-Ba leren 🌟'}
+        </button>
+
         {/* Prospective parents — link out to the public enrollment form */}
         <button
           onClick={() => { window.location.href = '/inschrijven'; }}
-          className="w-full flex items-center justify-center gap-2 mt-4 bg-white/80 backdrop-blur-sm hover:bg-white text-emerald-700 font-semibold py-3 rounded-2xl shadow-md shadow-emerald-950/5 ring-1 ring-black/5 transition text-sm sm:text-base"
+          className="w-full flex items-center justify-center gap-2 mt-3 bg-white/80 backdrop-blur-sm hover:bg-white text-emerald-700 font-semibold py-3 rounded-2xl shadow-md shadow-emerald-950/5 ring-1 ring-black/5 transition text-sm sm:text-base"
         >
           <UserPlus className="h-4 w-4" />
           {language === 'tr' ? 'Çocuğumu/çocuklarımı kaydettirmek istiyorum' : 'Ik wil mijn kind(eren) inschrijven'}
