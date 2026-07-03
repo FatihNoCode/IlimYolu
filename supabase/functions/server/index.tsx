@@ -3926,63 +3926,80 @@ app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
       return c.json({ error: 'date, startTime, endTime, minutesPerSlot are required' }, 400);
     }
 
-    // A conference spans every class in this school — count all enrolled students, not just one class's.
-    const allStudents: any[] = (await kv.getByPrefix('student:')).filter((s: any) => s && s.id && s.schoolId === schoolId);
-    const studentCount = allStudents.length;
-    const totalMinutesNeeded = studentCount * minutesPerSlot;
-
-    // Parse times and generate slots (only as many as needed for the student count)
     const [startH, startM] = startTime.split(':').map(Number);
     const [endH, endM] = endTime.split(':').map(Number);
     const startMinutes = startH * 60 + startM;
     const endMinutes = endH * 60 + endM;
-    const availableMinutes = endMinutes - startMinutes;
-    const effectiveEnd = startMinutes + Math.min(totalMinutesNeeded, availableMinutes);
 
-    const slots: any[] = [];
-    let currentMin = startMinutes;
-    while (currentMin + minutesPerSlot <= effectiveEnd) {
-      const h = Math.floor(currentMin / 60);
-      const m = currentMin % 60;
-      const slotStart = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      currentMin += minutesPerSlot;
-      const h2 = Math.floor(currentMin / 60);
-      const m2 = currentMin % 60;
-      const slotEnd = `${String(h2).padStart(2, '0')}:${String(m2).padStart(2, '0')}`;
-      slots.push({ start: slotStart, end: slotEnd, bookedBy: null, studentId: null, studentName: null });
-    }
-
-    const id = crypto.randomUUID();
-    const session = {
-      id,
-      classId: null,
-      className: null,
-      schoolId,
-      date,
-      startTime,
-      endTime,
-      minutesPerSlot,
-      studentCount,
-      slots,
-      createdAt: new Date().toISOString(),
+    const buildSlots = (classStudentCount: number) => {
+      const totalMinutesNeeded = classStudentCount * minutesPerSlot;
+      const effectiveEnd = startMinutes + Math.min(totalMinutesNeeded, endMinutes - startMinutes);
+      const slots: any[] = [];
+      let cur = startMinutes;
+      while (cur + minutesPerSlot <= effectiveEnd) {
+        const s = `${String(Math.floor(cur / 60)).padStart(2, '0')}:${String(cur % 60).padStart(2, '0')}`;
+        cur += minutesPerSlot;
+        const e = `${String(Math.floor(cur / 60)).padStart(2, '0')}:${String(cur % 60).padStart(2, '0')}`;
+        slots.push({ start: s, end: e, bookedBy: null, studentId: null, studentName: null });
+      }
+      return slots;
     };
 
-    await kv.set(`oudergesprek:${id}`, session);
-    const ids: string[] = await kv.get('oudergesprek_ids') || [];
-    await kv.set('oudergesprek_ids', [...ids, id]);
+    // Create one session per class, each with only as many slots as that class has students
+    const allClasses: any[] = (await kv.getByPrefix('class:')).filter((cl: any) => cl && cl.id && cl.schoolId === schoolId);
+    const allStudents: any[] = (await kv.getByPrefix('student:')).filter((s: any) => s && s.id && s.schoolId === schoolId);
 
-    // Send emails to every parent, since this conference spans all classes
+    const createdSessions: any[] = [];
+    const newIds: string[] = [];
+    const createdAt = new Date().toISOString();
+
+    for (const cls of allClasses) {
+      const classStudents = allStudents.filter((s: any) => s.classId === cls.id);
+      if (classStudents.length === 0) continue;
+
+      const slots = buildSlots(classStudents.length);
+      if (slots.length === 0) continue;
+
+      const id = crypto.randomUUID();
+      const session = {
+        id,
+        classId: cls.id,
+        className: cls.name,
+        schoolId,
+        date,
+        startTime,
+        endTime,
+        minutesPerSlot,
+        studentCount: classStudents.length,
+        slots,
+        createdAt,
+      };
+      await kv.set(`oudergesprek:${id}`, session);
+      createdSessions.push(session);
+      newIds.push(id);
+    }
+
+    const existingIds: string[] = await kv.get('oudergesprek_ids') || [];
+    await kv.set('oudergesprek_ids', [...existingIds, ...newIds]);
+
+    // Send emails to every parent whose child is in one of the classes
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     let emailsSent = 0;
     if (RESEND_API_KEY && allStudents.length > 0) {
       const parentEmailsSeen = new Set<string>();
 
       for (const student of allStudents) {
-        if (!student || !student.parentId) continue;
+        if (!student?.parentId) continue;
+        const cls = allClasses.find((cl: any) => cl.id === student.classId);
+        if (!cls) continue;
+        const session = createdSessions.find((s: any) => s.classId === cls.id);
+        if (!session) continue;
+
         const parentData = await getUserData(student.parentId);
         if (!parentData?.email || parentEmailsSeen.has(parentData.email)) continue;
         parentEmailsSeen.add(parentData.email);
 
+        const lastSlotEnd = session.slots[session.slots.length - 1]?.end || endTime;
         const bookingLink = `https://ilimyolu.com`;
         try {
           await fetch('https://api.resend.com/emails', {
@@ -3995,15 +4012,15 @@ app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
               html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
                 <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu - Oudergesprek</h2>
                 <p style="color:#374151;line-height:1.6">Beste ouder,</p>
-                <p style="color:#374151;line-height:1.6">Er is een oudergesprek ingepland op <strong>${date}</strong>.</p>
-                <p style="color:#374151;line-height:1.6">Tijdsloten zijn beschikbaar van <strong>${startTime}</strong> tot <strong>${slots[slots.length - 1]?.end || endTime}</strong> (${minutesPerSlot} minuten per gesprek).</p>
+                <p style="color:#374151;line-height:1.6">Er is een oudergesprek ingepland op <strong>${date}</strong> voor klas <strong>${cls.name}</strong>.</p>
+                <p style="color:#374151;line-height:1.6">Tijdsloten zijn beschikbaar van <strong>${startTime}</strong> tot <strong>${lastSlotEnd}</strong> (${minutesPerSlot} minuten per gesprek).</p>
                 <p style="color:#374151;line-height:1.6">Log in op het ouderportaal om uw tijdslot te kiezen. <strong>Wie het eerst komt, het eerst maalt!</strong></p>
                 <p style="margin:24px 0"><a href="${bookingLink}" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Kies uw tijdslot</a></p>
                 <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
                 <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
                 <p style="color:#374151;line-height:1.6">Sayın veli,</p>
-                <p style="color:#374151;line-height:1.6"><strong>${date}</strong> tarihinde veli görüşmesi planlanmıştır.</p>
-                <p style="color:#374151;line-height:1.6">Görüşme saatleri <strong>${startTime}</strong> ile <strong>${slots[slots.length - 1]?.end || endTime}</strong> arasındadır (görüşme başına ${minutesPerSlot} dakika).</p>
+                <p style="color:#374151;line-height:1.6"><strong>${date}</strong> tarihinde <strong>${cls.name}</strong> sınıfı için veli görüşmesi planlanmıştır.</p>
+                <p style="color:#374151;line-height:1.6">Görüşme saatleri <strong>${startTime}</strong> ile <strong>${lastSlotEnd}</strong> arasındadır (görüşme başına ${minutesPerSlot} dakika).</p>
                 <p style="color:#374151;line-height:1.6">Zaman dilimi seçmek için veli portalına giriş yapın. <strong>İlk gelen, ilk alır!</strong></p>
                 <p style="margin:24px 0"><a href="${bookingLink}" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Zaman dilimi seçin</a></p>
                 <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
@@ -4018,7 +4035,7 @@ app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
       }
     }
 
-    return c.json({ success: true, session, emailsSent });
+    return c.json({ success: true, sessions: createdSessions, emailsSent });
   } catch (err) {
     console.log('Create oudergesprek error:', err);
     return c.json({ error: 'Failed to create conference' }, 500);
@@ -4039,6 +4056,15 @@ app.get("/make-server-6679cacd/oudergesprekken", async (c) => {
 
     const allSessions = await kv.mget(ids.map((id: string) => `oudergesprek:${id}`));
     let sessions = allSessions.filter((s: any) => s && s.id && (!s.schoolId || mySchoolIds.has(s.schoolId)));
+
+    // Parents only see the sessions for their children's classes
+    if (userData?.role === 'parent') {
+      const myStudents: any[] = (await kv.getByPrefix('student:')).filter(
+        (s: any) => s && s.parentId === user.id
+      );
+      const myClassIds = new Set(myStudents.map((s: any) => s.classId).filter(Boolean));
+      sessions = sessions.filter((s: any) => !s.classId || myClassIds.has(s.classId));
+    }
 
     sessions.sort((a: any, b: any) => b.date.localeCompare(a.date));
     return c.json({ sessions });

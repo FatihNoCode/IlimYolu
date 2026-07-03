@@ -66,10 +66,11 @@ export default function OudergesprekkenView({ language, apiRequest }: Oudergespr
         method: 'POST',
         body: JSON.stringify({ date, startTime, endTime, minutesPerSlot }),
       });
+      const classCount = result.sessions?.length ?? 1;
       alert(
         language === 'tr'
-          ? `Veli görüşmesi oluşturuldu! ${result.emailsSent} e-posta gönderildi.`
-          : `Oudergesprek aangemaakt! ${result.emailsSent} e-mail(s) verstuurd.`
+          ? `Veli görüşmesi oluşturuldu! ${classCount} sınıf için oturumlar açıldı. ${result.emailsSent} e-posta gönderildi.`
+          : `Oudergesprek aangemaakt! Sessies aangemaakt voor ${classCount} klassen. ${result.emailsSent} e-mail(s) verstuurd.`
       );
       setDate('');
       loadSessions();
@@ -109,8 +110,8 @@ export default function OudergesprekkenView({ language, apiRequest }: Oudergespr
 
         <p className="text-sm text-gray-500 mb-4">
           {language === 'tr'
-            ? 'Bu veli görüşmesi tüm sınıflar için geçerlidir.'
-            : 'Dit oudergesprek geldt voor alle klassen.'}
+            ? 'Her sınıf için ayrı oturum oluşturulur. Her sınıfın öğrenci sayısına göre zaman dilimleri belirlenir.'
+            : 'Er wordt een aparte sessie per klas aangemaakt. De tijdsloten worden bepaald op basis van het aantal leerlingen per klas.'}
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -167,12 +168,12 @@ export default function OudergesprekkenView({ language, apiRequest }: Oudergespr
         </div>
 
         {/* Preview info */}
-        {date && previewSlotCount > 0 && (
+        {date && minutesPerSlot > 0 && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-sm">
             <p className="text-emerald-800">
               {language === 'tr'
-                ? `${previewSlotCount} zaman dilimi oluşturulacak (${startTime} - ${endTime}, ${minutesPerSlot} dk/görüşme). Öğrenci sayısına göre yalnızca gerekli kadar dilim açılacak.`
-                : `${previewSlotCount} tijdsloten beschikbaar (${startTime} - ${endTime}, ${minutesPerSlot} min/gesprek). Het systeem maakt alleen zoveel slots als nodig voor het aantal leerlingen.`}
+                ? `Her sınıf için öğrenci sayısı × ${minutesPerSlot} dakika kadar zaman dilimi açılacak (${startTime} başlangıcıyla). Örneğin 10 öğrencili sınıf için ${startTime}'dan itibaren 100 dakika.`
+                : `Per klas worden zoveel tijdsloten aangemaakt als er leerlingen zijn × ${minutesPerSlot} minuten (startend om ${startTime}). Bijv. voor een klas van 10 leerlingen: 100 minuten vanaf ${startTime}.`}
             </p>
             <p className="text-emerald-700 mt-1 font-medium">
               {language === 'tr'
