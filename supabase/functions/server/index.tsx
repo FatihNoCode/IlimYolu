@@ -137,8 +137,10 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
 
 function emailWrapper(titleNl: string, bodyHtml: string) {
   return `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+    <p style="color:#059669;font-size:13px;font-weight:600;margin:0 0 6px">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
     <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu${titleNl ? ' - ' + titleNl : ''}</h2>
     ${bodyHtml}
+    <p style="color:#374151;line-height:1.6;margin-top:24px">Selamün Aleyküm ve Rahmetullah | Wassalamu alaikum wa rahmatullah,<br>Ilim Yolu</p>
     <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
     <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Ilim Yolu leerlingvolgsysteem.</p>
   </div>`;

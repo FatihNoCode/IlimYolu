@@ -3,7 +3,7 @@ import { useApp } from '../App';
 import { translations } from './translations';
 import { Calendar } from './ui/calendar';
 import { useHashTab } from '../useHashTab';
-import { Euro, LogOut } from 'lucide-react';
+import { Euro, LogOut, Moon } from 'lucide-react';
 import booksLogo from '../../imports/books__1_.png';
 
 // Local-time date helpers (avoid UTC parsing shifting the day)
@@ -71,7 +71,7 @@ function getSchoolPrice(s: BoekhoudingSettings, isMember: boolean, hasSibling: b
 }
 
 export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
-  const { language, setLanguage, apiRequest } = useApp();
+  const { language, setLanguage, apiRequest, user } = useApp();
   const t = translations[language];
   const [students, setStudents] = useState<Student[]>([]);
   const [homework, setHomework] = useState<Homework[]>([]);
@@ -411,7 +411,10 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
             <img src={booksLogo} alt="Ilim Yolu" className="h-9 w-9 sm:h-11 sm:w-11 object-contain" />
             <div>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 leading-tight">{t.parentDashboard}</h1>
-              <p className="text-xs text-gray-400 hidden sm:block">Ilim Yolu</p>
+              <p className="flex items-center gap-1 text-xs sm:text-sm text-emerald-700 font-medium">
+                <Moon className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-emerald-700" />
+                {language === 'tr' ? 'Selamün Aleyküm' : 'Assalamu alaikum'}{user?.name ? `, ${user.name}` : ''}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
