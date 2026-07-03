@@ -475,6 +475,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
             <InschrijvingenView
               language={language}
               apiRequest={apiRequest}
+              classes={classes}
             />
           )}
 

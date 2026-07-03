@@ -61,21 +61,6 @@ export default function UsersView({
   const [assignSelected, setAssignSelected] = useState<string[]>([]);
   const [assignSaving, setAssignSaving] = useState(false);
 
-  // Invite teacher panel
-  const [newTeacherEmail, setNewTeacherEmail] = useState('');
-  const [lastInviteLink, setLastInviteLink] = useState('');
-
-  // Send reminder panel
-  const [reminderTeacherIds, setReminderTeacherIds] = useState<string[]>([]);
-  const [reminderSubject, setReminderSubject] = useState('');
-  const [reminderMessage, setReminderMessage] = useState('');
-  const [sendingReminder, setSendingReminder] = useState(false);
-  const [reminderResult, setReminderResult] = useState<string | null>(null);
-
-  // Reset password panel
-  const [resetPasswordEmail, setResetPasswordEmail] = useState('');
-  const [resetPasswordNew, setResetPasswordNew] = useState('');
-
   const t = {
     tr: {
       title: 'Kullanıcılar',
@@ -104,29 +89,7 @@ export default function UsersView({
       loading: 'Yükleniyor...',
       selectStudentsFor: 'için öğrenci seçin',
       noClass: 'Sınıfsız',
-      inviteTeacherTitle: 'Öğretmen Davet Et',
-      inviteTeacherNote: 'Davet linkini kopyalayıp öğretmene manuel olarak gönderin. İlk girişte şifre oluşturacaklardır.',
-      addTeacher: 'Öğretmen Ekle',
-      lastInvite: 'Son Oluşturulan Davet Linki:',
-      copy: 'Kopyala',
-      copied: 'Link kopyalandı!',
-      sendReminderTitle: 'Ödev Hatırlatıcısı Gönder',
-      sendReminderNote: 'Seçilen öğretmenlere e-posta ile hatırlatıcı gönderin.',
-      teachersLabel: 'Öğretmenler',
-      allTeachers: 'Tüm öğretmenler',
-      subject: 'Konu',
-      subjectPlaceholder: 'Ödev hatırlatıcısı',
-      message: 'Mesaj',
-      messagePlaceholder: 'Merhaba, lütfen bu haftaki ödevi sisteme girmeyi unutmayın.',
-      sendReminder: 'Hatırlatıcı Gönder',
-      sending: 'Gönderiliyor...',
-      resetPasswordTitle: 'Şifre Sıfırla',
-      resetPasswordNote: 'Herhangi bir kullanıcının (veli, öğretmen, yönetici) şifresini sıfırlayabilirsiniz.',
-      newPassword: 'Yeni Şifre',
-      resetPasswordBtn: 'Şifreyi Sıfırla',
       genericError: 'Hata oluştu!',
-      teacherCreated: 'Öğretmen oluşturuldu! Davet linkini kopyalayıp öğretmene gönderin.',
-      passwordReset: 'Şifre sıfırlandı!',
     },
     nl: {
       title: 'Gebruikers',
@@ -155,29 +118,7 @@ export default function UsersView({
       loading: 'Laden...',
       selectStudentsFor: 'selecteer leerlingen voor',
       noClass: 'Geen klas',
-      inviteTeacherTitle: 'Leraar Uitnodigen',
-      inviteTeacherNote: 'Kopieer de uitnodigingslink en stuur deze handmatig naar de leraar. Bij eerste login maken ze een wachtwoord aan.',
-      addTeacher: 'Leraar Toevoegen',
-      lastInvite: 'Laatst Aangemaakte Uitnodigingslink:',
-      copy: 'Kopieer',
-      copied: 'Link gekopieerd!',
-      sendReminderTitle: 'Huiswerk herinnering sturen',
-      sendReminderNote: 'Stuur een e-mailherinnering naar geselecteerde leraren.',
-      teachersLabel: 'Leraren',
-      allTeachers: 'Alle leraren',
-      subject: 'Onderwerp',
-      subjectPlaceholder: 'Herinnering huiswerk invoeren',
-      message: 'Bericht',
-      messagePlaceholder: 'Beste leraar, vergeet niet het huiswerk voor deze week in te voeren in het systeem.',
-      sendReminder: 'Herinnering versturen',
-      sending: 'Versturen...',
-      resetPasswordTitle: 'Wachtwoord Resetten',
-      resetPasswordNote: 'U kunt het wachtwoord van elke gebruiker (ouder, leraar, beheerder) resetten.',
-      newPassword: 'Nieuw Wachtwoord',
-      resetPasswordBtn: 'Wachtwoord Resetten',
       genericError: 'Er is een fout opgetreden!',
-      teacherCreated: 'Leraar aangemaakt! Kopieer de uitnodigingslink en stuur naar de leraar.',
-      passwordReset: 'Wachtwoord gereset!',
     },
   };
   const text = t[language];
@@ -265,73 +206,6 @@ export default function UsersView({
       setAssignSaving(false);
     }
   };
-
-  const createTeacher = async () => {
-    if (!newTeacherEmail) return;
-    try {
-      const result = await apiRequest('/teachers', {
-        method: 'POST',
-        body: JSON.stringify({ email: newTeacherEmail }),
-      });
-      setLastInviteLink(`${window.location.origin}?invite=${result.inviteToken}`);
-      alert(text.teacherCreated);
-      setNewTeacherEmail('');
-      await loadUsers();
-      onDataChange();
-    } catch (error: any) {
-      alert(error.message || text.genericError);
-    }
-  };
-
-  const copyInviteLink = () => {
-    navigator.clipboard.writeText(lastInviteLink);
-    alert(text.copied);
-  };
-
-  const sendReminder = async () => {
-    if (!reminderTeacherIds.length || !reminderSubject || !reminderMessage) return;
-    setSendingReminder(true);
-    setReminderResult(null);
-    try {
-      const result = await apiRequest('/send-reminder', {
-        method: 'POST',
-        body: JSON.stringify({
-          teacherIds: reminderTeacherIds,
-          subject: reminderSubject,
-          message: reminderMessage,
-        }),
-      });
-      setReminderResult(
-        language === 'tr'
-          ? `${result.sent} / ${result.total} öğretmene başarıyla gönderildi.`
-          : `Verstuurd naar ${result.sent} van ${result.total} leraar/leraren.`
-      );
-      setReminderTeacherIds([]);
-      setReminderSubject('');
-      setReminderMessage('');
-    } catch {
-      setReminderResult(language === 'tr' ? 'Gönderim başarısız.' : 'Verzenden mislukt.');
-    } finally {
-      setSendingReminder(false);
-    }
-  };
-
-  const resetPassword = async () => {
-    if (!resetPasswordEmail || !resetPasswordNew) return;
-    try {
-      await apiRequest('/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ email: resetPasswordEmail, newPassword: resetPasswordNew }),
-      });
-      alert(text.passwordReset);
-      setResetPasswordEmail('');
-      setResetPasswordNew('');
-    } catch (error: any) {
-      alert(error.message || text.genericError);
-    }
-  };
-
-  const teacherUsers = users.filter((u) => u.role === 'teacher');
 
   const filteredUsers = users.filter((u) => {
     if (!search.trim()) return true;
@@ -544,157 +418,6 @@ export default function UsersView({
         </div>
       )}
 
-      {/* Invite teacher */}
-      <div className="bg-gray-50 p-6 rounded-lg mb-6">
-        <h3 className="text-xl font-semibold text-emerald-800 mb-4">{text.inviteTeacherTitle}</h3>
-        <div className="space-y-4">
-          <input
-            type="email"
-            value={newTeacherEmail}
-            onChange={(e) => setNewTeacherEmail(e.target.value)}
-            placeholder={language === 'tr' ? 'ogretmen@email.com' : 'leraar@email.com'}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          <button
-            onClick={createTeacher}
-            disabled={!newTeacherEmail}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg transition disabled:opacity-50"
-          >
-            {text.addTeacher}
-          </button>
-          <p className="text-sm text-gray-600">{text.inviteTeacherNote}</p>
-          {lastInviteLink && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <p className="text-sm font-semibold text-emerald-800 mb-2">{text.lastInvite}</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={lastInviteLink}
-                  readOnly
-                  className="flex-1 px-3 py-2 bg-white border border-emerald-300 rounded text-sm font-mono"
-                />
-                <button
-                  onClick={copyInviteLink}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold transition"
-                >
-                  {text.copy}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Send reminder */}
-      <div className="bg-amber-50 border border-amber-100 p-6 rounded-lg mb-6">
-        <h3 className="text-xl font-semibold text-amber-800 mb-1">{text.sendReminderTitle}</h3>
-        <p className="text-sm text-amber-700 mb-4">{text.sendReminderNote}</p>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{text.teachersLabel}</label>
-            <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-white">
-              <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-amber-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={reminderTeacherIds.length === teacherUsers.length && teacherUsers.length > 0}
-                  onChange={(e) => setReminderTeacherIds(e.target.checked ? teacherUsers.map((t) => t.id) : [])}
-                  className="accent-amber-600"
-                />
-                <span className="text-sm font-semibold text-amber-800">{text.allTeachers}</span>
-              </label>
-              <hr className="border-gray-100 my-1" />
-              {teacherUsers.map((teacher) => (
-                <label key={teacher.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-amber-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={reminderTeacherIds.includes(teacher.id)}
-                    onChange={(e) =>
-                      setReminderTeacherIds((prev) =>
-                        e.target.checked ? [...prev, teacher.id] : prev.filter((id) => id !== teacher.id)
-                      )
-                    }
-                    className="accent-amber-600"
-                  />
-                  <span className="text-sm text-gray-700">{teacher.name || teacher.email}</span>
-                  <span className="text-xs text-gray-400 ml-auto">{teacher.email}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{text.subject}</label>
-            <input
-              type="text"
-              value={reminderSubject}
-              onChange={(e) => setReminderSubject(e.target.value)}
-              placeholder={text.subjectPlaceholder}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{text.message}</label>
-            <textarea
-              rows={4}
-              value={reminderMessage}
-              onChange={(e) => setReminderMessage(e.target.value)}
-              placeholder={text.messagePlaceholder}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none"
-            />
-          </div>
-          {reminderResult && (
-            <div
-              className={`text-sm px-4 py-2 rounded-lg ${
-                reminderResult.includes('mislukt') || reminderResult.includes('başarısız')
-                  ? 'bg-red-50 text-red-700'
-                  : 'bg-emerald-50 text-emerald-700'
-              }`}
-            >
-              {reminderResult}
-            </div>
-          )}
-          <button
-            onClick={sendReminder}
-            disabled={sendingReminder || !reminderTeacherIds.length || !reminderSubject || !reminderMessage}
-            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg transition disabled:opacity-50"
-          >
-            {sendingReminder ? text.sending : text.sendReminder}
-          </button>
-        </div>
-      </div>
-
-      {/* Reset password */}
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <h3 className="text-xl font-semibold text-emerald-800 mb-4">{text.resetPasswordTitle}</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{text.email}</label>
-            <input
-              type="email"
-              value={resetPasswordEmail}
-              onChange={(e) => setResetPasswordEmail(e.target.value)}
-              placeholder="user@email.com"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{text.newPassword}</label>
-            <input
-              type="password"
-              value={resetPasswordNew}
-              onChange={(e) => setResetPasswordNew(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-          <button
-            onClick={resetPassword}
-            disabled={!resetPasswordEmail || !resetPasswordNew}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg transition disabled:opacity-50"
-          >
-            {text.resetPasswordBtn}
-          </button>
-          <p className="text-sm text-gray-600">{text.resetPasswordNote}</p>
-        </div>
-      </div>
     </div>
   );
 }

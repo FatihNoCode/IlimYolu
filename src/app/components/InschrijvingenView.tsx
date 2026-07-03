@@ -14,11 +14,18 @@ interface Registration {
   vraag?: string;
   ingediendOp: string;
   status: 'nieuw' | 'gezien' | 'geaccepteerd';
+  klasId?: string;
+}
+
+interface Klas {
+  id: string;
+  name: string;
 }
 
 interface InschrijvingenViewProps {
   language: 'tr' | 'nl';
   apiRequest: (endpoint: string, options?: RequestInit) => Promise<any>;
+  classes: Klas[];
 }
 
 const STATUS_LABELS = {
@@ -27,12 +34,13 @@ const STATUS_LABELS = {
   geaccepteerd: { nl: 'Geaccepteerd', tr: 'Kabul edildi', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
 };
 
-export default function InschrijvingenView({ language, apiRequest }: InschrijvingenViewProps) {
+export default function InschrijvingenView({ language, apiRequest, classes }: InschrijvingenViewProps) {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'nieuw' | 'gezien' | 'geaccepteerd'>('all');
+  const [selectedKlas, setSelectedKlas] = useState<Record<string, string>>({});
 
   const nl = (dutch: string, tr: string) => language === 'tr' ? tr : dutch;
 
@@ -42,7 +50,15 @@ export default function InschrijvingenView({ language, apiRequest }: Inschrijvin
     setLoading(true);
     try {
       const res = await apiRequest('/inschrijvingen');
-      setRegistrations(res.registrations || []);
+      const regs: Registration[] = res.registrations || [];
+      setRegistrations(regs);
+      setSelectedKlas(prev => {
+        const next = { ...prev };
+        for (const r of regs) {
+          if (r.klasId && !next[r.id]) next[r.id] = r.klasId;
+        }
+        return next;
+      });
     } catch (e) {
       console.error('Error loading inschrijvingen:', e);
     } finally {
@@ -51,14 +67,19 @@ export default function InschrijvingenView({ language, apiRequest }: Inschrijvin
   };
 
   const updateStatus = async (id: string, status: Registration['status']) => {
+    if (status === 'geaccepteerd' && !selectedKlas[id]) {
+      alert(nl('Selecteer eerst een klas voordat u accepteert.', 'Kabul etmeden önce bir sınıf seçin.'));
+      return;
+    }
     setUpdatingId(id);
     try {
       await apiRequest(`/inschrijvingen/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, klasId: selectedKlas[id] }),
       });
-      setRegistrations(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-    } catch (e) {
+      setRegistrations(prev => prev.map(r => r.id === id ? { ...r, status, klasId: selectedKlas[id] || r.klasId } : r));
+    } catch (e: any) {
+      alert(e.message || nl('Bijwerken mislukt.', 'Güncelleme başarısız.'));
       console.error('Error updating status:', e);
     } finally {
       setUpdatingId(null);
@@ -247,6 +268,24 @@ export default function InschrijvingenView({ language, apiRequest }: Inschrijvin
                       </div>
                     )}
 
+                    {/* Class selection — required before accepting */}
+                    {reg.status !== 'nieuw' && (
+                      <div className="mb-3">
+                        <p className="text-xs text-gray-400 font-semibold mb-2">{nl('Klas', 'Sınıf')}</p>
+                        <select
+                          value={selectedKlas[reg.id] || ''}
+                          onChange={(e) => setSelectedKlas(prev => ({ ...prev, [reg.id]: e.target.value }))}
+                          disabled={reg.status === 'geaccepteerd'}
+                          className="w-full sm:w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100 disabled:text-gray-500"
+                        >
+                          <option value="">{nl('Kies een klas...', 'Bir sınıf seçin...')}</option>
+                          {classes.map(k => (
+                            <option key={k.id} value={k.id}>{k.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {/* Status buttons */}
                     <div>
                       <p className="text-xs text-gray-400 font-semibold mb-2">{nl('Status bijwerken', 'Durumu güncelle')}</p>
@@ -254,11 +293,13 @@ export default function InschrijvingenView({ language, apiRequest }: Inschrijvin
                         {(['nieuw', 'gezien', 'geaccepteerd'] as const).map(s => {
                           const info = STATUS_LABELS[s];
                           const active = reg.status === s;
+                          const blockedByKlas = s === 'geaccepteerd' && !active && !selectedKlas[reg.id];
                           return (
                             <button
                               key={s}
                               onClick={() => updateStatus(reg.id, s)}
-                              disabled={active || updatingId === reg.id}
+                              disabled={active || updatingId === reg.id || blockedByKlas}
+                              title={blockedByKlas ? nl('Selecteer eerst een klas', 'Önce bir sınıf seçin') : undefined}
                               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
                                 active
                                   ? `${info.color} cursor-default`

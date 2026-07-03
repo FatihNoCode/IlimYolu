@@ -81,6 +81,60 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 }
 
+// Builds a minimal .ics calendar file (as a data: URI) plus a Google Calendar
+// link for a single conference slot, so parents can add it to any calendar
+// app straight from the confirmation email.
+function buildCalendarLinks(dateStr: string, startTime: string, endTime: string, title: string, description: string) {
+  const toIcsDate = (time: string) => `${dateStr.replace(/-/g, '')}T${time.replace(':', '')}00`;
+  const dtStart = toIcsDate(startTime);
+  const dtEnd = toIcsDate(endTime);
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Ilim Yolu//Oudergesprek//NL',
+    'BEGIN:VEVENT',
+    `UID:${crypto.randomUUID()}@ilimyolu.com`,
+    `DTSTAMP:${dtStart}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${title}`,
+    `DESCRIPTION:${description}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+  const icsDataUri = `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
+
+  const googleDates = `${dtStart}/${dtEnd}`;
+  const googleLink = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${googleDates}&details=${encodeURIComponent(description)}`;
+
+  return { icsDataUri, googleLink };
+}
+
+// Sends (or re-sends, on reschedule) the oudergesprek booking confirmation
+// email with "add to calendar" links for the specific slot.
+async function sendConferenceConfirmationEmail(to: string, session: any, slot: any, studentName: string) {
+  const title = `Oudergesprek ${studentName} | Veli Görüşmesi`;
+  const description = `Oudergesprek voor ${studentName} bij Ilim Yolu.`;
+  const { icsDataUri, googleLink } = buildCalendarLinks(session.date, slot.start, slot.end, title, description);
+
+  return sendEmail(
+    to,
+    `Bevestiging tijdslot oudergesprek | Veli Görüşmesi Onayı - Ilim Yolu`,
+    emailWrapper('Oudergesprek bevestigd', `
+      <p style="color:#374151;line-height:1.6">Beste ouder,</p>
+      <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd op <strong>${session.date}</strong> van <strong>${slot.start}</strong> tot <strong>${slot.end}</strong>.</p>
+      <p style="margin:20px 0">
+        <a href="${googleLink}" target="_blank" style="background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;margin-right:8px">Toevoegen aan Google Agenda</a>
+        <a href="${icsDataUri}" download="oudergesprek.ics" style="background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Toevoegen aan Apple/Outlook Agenda</a>
+      </p>
+      <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
+      <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
+      <p style="color:#374151;line-height:1.6">Sayın veli,</p>
+      <p style="color:#374151;line-height:1.6"><strong>${studentName}</strong> için görüşme saati <strong>${session.date}</strong> tarihinde <strong>${slot.start}</strong> - <strong>${slot.end}</strong> olarak onaylanmıştır.</p>
+    `)
+  );
+}
+
 function emailWrapper(titleNl: string, bodyHtml: string) {
   return `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
     <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu${titleNl ? ' - ' + titleNl : ''}</h2>
@@ -3251,13 +3305,76 @@ app.patch("/make-server-6679cacd/inschrijvingen/:id", async (c) => {
     if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
 
     const id = c.req.param('id');
-    const { status } = await c.req.json();
+    const { status, klasId } = await c.req.json();
     const rec = await kv.get(`inschrijving:${id}`);
     if (!rec) return c.json({ error: 'Not found' }, 404);
     if (rec.schoolId && rec.schoolId !== schoolId) {
       return c.json({ error: 'Not your school' }, 403);
     }
-    await kv.set(`inschrijving:${id}`, { ...rec, status });
+
+    // A class must be chosen before a registration can be accepted.
+    const effectiveKlasId = klasId || rec.klasId;
+    if (status === 'geaccepteerd' && !effectiveKlasId) {
+      return c.json({ error: 'Selecteer eerst een klas voordat u accepteert' }, 400);
+    }
+
+    let studentId = rec.studentId || null;
+    if (status === 'geaccepteerd' && !studentId) {
+      studentId = crypto.randomUUID();
+      let parentId = null;
+
+      if (rec.contactEmail) {
+        const allUsers = await kv.getByPrefix('user:');
+        const existingParent = allUsers.find((u: any) => u && u.email === rec.contactEmail && u.role === 'parent');
+        if (existingParent) {
+          parentId = existingParent.id;
+        } else {
+          const tempPassword = crypto.randomUUID();
+          const supabase = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+          );
+          const { data: parentData, error: createError } = await supabase.auth.admin.createUser({
+            email: rec.contactEmail,
+            password: tempPassword,
+            user_metadata: { name: rec.contactNaam || 'Parent', role: 'parent' },
+            email_confirm: true,
+          });
+          if (!createError && parentData) {
+            parentId = parentData.user.id;
+            await kv.set(`user:${parentId}`, {
+              id: parentId,
+              email: rec.contactEmail,
+              name: rec.contactNaam || 'Parent',
+              role: 'parent',
+              lastCheckIn: null,
+              createdAt: new Date().toISOString(),
+            });
+            await kv.set(`parent_children:${parentId}`, []);
+          }
+        }
+      }
+
+      const student = {
+        id: studentId,
+        name: `${rec.voornaam} ${rec.achternaam}`.trim(),
+        parentId,
+        parentEmail: rec.contactEmail || null,
+        classId: effectiveKlasId,
+        schoolId,
+        createdAt: new Date().toISOString(),
+      };
+      await kv.set(`student:${studentId}`, student);
+
+      if (parentId) {
+        const children = await kv.get(`parent_children:${parentId}`) || [];
+        await kv.set(`parent_children:${parentId}`, [...children, studentId]);
+      }
+      const classStudents = await kv.get(`class_students:${effectiveKlasId}`) || [];
+      await kv.set(`class_students:${effectiveKlasId}`, [...classStudents, studentId]);
+    }
+
+    await kv.set(`inschrijving:${id}`, { ...rec, status, klasId: effectiveKlasId, studentId });
 
     const statusLabelsNl: Record<string, string> = {
       nieuw: 'Nieuw',
@@ -3947,14 +4064,99 @@ app.post("/make-server-6679cacd/oudergesprekken/:id/book", async (c) => {
       studentId,
       studentName: student.name,
       bookedAt: new Date().toISOString(),
+      rescheduleCount: 0,
     };
 
     await kv.set(`oudergesprek:${id}`, session);
 
-    return c.json({ success: true, slot: session.slots[slotIndex] });
+    const slot = session.slots[slotIndex];
+    const parentData = await getUserData(user.id);
+    if (parentData?.email) {
+      await sendConferenceConfirmationEmail(parentData.email, session, slot, student.name);
+    }
+
+    return c.json({ success: true, slot });
   } catch (err) {
     console.log('Book oudergesprek slot error:', err);
     return c.json({ error: 'Failed to book slot' }, 500);
+  }
+});
+
+const MAX_RESCHEDULES = 3;
+
+// Parent reschedules their already-booked slot to a different open slot,
+// up to MAX_RESCHEDULES times.
+app.post("/make-server-6679cacd/oudergesprekken/:id/reschedule", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (userData?.role !== 'parent') return c.json({ error: 'Only parents can reschedule slots' }, 403);
+
+    const id = c.req.param('id');
+    const { fromSlotIndex, toSlotIndex, studentId } = await c.req.json();
+
+    const session = await kv.get(`oudergesprek:${id}`);
+    if (!session) return c.json({ error: 'Conference not found' }, 404);
+
+    if (
+      fromSlotIndex < 0 || fromSlotIndex >= session.slots.length ||
+      toSlotIndex < 0 || toSlotIndex >= session.slots.length
+    ) {
+      return c.json({ error: 'Invalid slot index' }, 400);
+    }
+
+    const childrenIds: string[] = await kv.get(`parent_children:${user.id}`) || [];
+    if (!childrenIds.includes(studentId)) {
+      return c.json({ error: 'Not your child' }, 403);
+    }
+
+    const fromSlot = session.slots[fromSlotIndex];
+    if (fromSlot.studentId !== studentId || fromSlot.bookedBy !== user.id) {
+      return c.json({ error: 'This slot is not booked by you for this student' }, 403);
+    }
+
+    const rescheduleCount = fromSlot.rescheduleCount || 0;
+    if (rescheduleCount >= MAX_RESCHEDULES) {
+      return c.json({ error: `You can only reschedule up to ${MAX_RESCHEDULES} times` }, 400);
+    }
+
+    if (session.slots[toSlotIndex].bookedBy) {
+      return c.json({ error: 'Slot already booked' }, 409);
+    }
+
+    const student = await kv.get(`student:${studentId}`);
+    if (!student) return c.json({ error: 'Student not found' }, 404);
+
+    session.slots[fromSlotIndex] = {
+      ...session.slots[fromSlotIndex],
+      bookedBy: null,
+      studentId: null,
+      studentName: null,
+      bookedAt: null,
+      rescheduleCount: 0,
+    };
+    session.slots[toSlotIndex] = {
+      ...session.slots[toSlotIndex],
+      bookedBy: user.id,
+      studentId,
+      studentName: student.name,
+      bookedAt: new Date().toISOString(),
+      rescheduleCount: rescheduleCount + 1,
+    };
+
+    await kv.set(`oudergesprek:${id}`, session);
+
+    const slot = session.slots[toSlotIndex];
+    const parentData = await getUserData(user.id);
+    if (parentData?.email) {
+      await sendConferenceConfirmationEmail(parentData.email, session, slot, student.name);
+    }
+
+    return c.json({ success: true, slot, remainingReschedules: MAX_RESCHEDULES - slot.rescheduleCount });
+  } catch (err) {
+    console.log('Reschedule oudergesprek slot error:', err);
+    return c.json({ error: 'Failed to reschedule slot' }, 500);
   }
 });
 
