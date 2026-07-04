@@ -75,8 +75,14 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
 
+  // Agenda
+  const [agendaSettings, setAgendaSettings] = useState<any>(null);
+  const [agendaVacations, setAgendaVacations] = useState<any[]>([]);
+  const [agendaEvents, setAgendaEvents] = useState<any[]>([]);
+
   useEffect(() => {
     loadData();
+    loadAgenda();
   }, []);
 
   useEffect(() => {
@@ -113,6 +119,22 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
       }
     } catch (error) {
       console.error('Error loading data:', error);
+    }
+  };
+
+  const loadAgenda = async () => {
+    try {
+      const [settingsRes, vacRes, evtRes] = await Promise.all([
+        apiRequest('/agenda/settings'),
+        apiRequest('/agenda/vacations'),
+        apiRequest('/agenda/events'),
+      ]);
+      setAgendaSettings(settingsRes.settings || null);
+      const today = new Date().toISOString().split('T')[0];
+      setAgendaVacations((vacRes.vacations || []).filter((v: any) => v.endDate >= today).sort((a: any, b: any) => a.startDate.localeCompare(b.startDate)));
+      setAgendaEvents((evtRes.events || []).filter((e: any) => e.date >= today).sort((a: any, b: any) => a.date.localeCompare(b.date)));
+    } catch (err) {
+      console.error('Error loading agenda:', err);
     }
   };
 
@@ -482,6 +504,28 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
               <TabButton tab="beheer">Beheer</TabButton>
               <TabButton tab="oudergesprekken">{language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}</TabButton>
             </div>
+
+            {/* Agenda info bar */}
+            {(agendaSettings || agendaVacations.length > 0 || agendaEvents.length > 0) && (
+              <div className="flex flex-wrap gap-3 mb-4 text-xs sm:text-sm">
+                {agendaSettings && (
+                  <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full">
+                    {language === 'tr' ? 'Ders saatleri' : 'Lestijden'}: {agendaSettings.startTime} - {agendaSettings.endTime}
+                  </span>
+                )}
+                {agendaVacations.slice(0, 2).map((v: any) => (
+                  <span key={v.id} className="bg-orange-50 text-orange-700 px-3 py-1 rounded-full">
+                    🏖 {v.name}: {new Date(v.startDate + 'T00:00:00').toLocaleDateString(language === 'tr' ? 'tr-TR' : 'nl-NL', { day: 'numeric', month: 'short' })} - {new Date(v.endDate + 'T00:00:00').toLocaleDateString(language === 'tr' ? 'tr-TR' : 'nl-NL', { day: 'numeric', month: 'short' })}
+                  </span>
+                ))}
+                {agendaEvents.slice(0, 2).map((ev: any) => (
+                  <span key={ev.id} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
+                    🎉 {ev.title}: {new Date(ev.date + 'T00:00:00').toLocaleDateString(language === 'tr' ? 'tr-TR' : 'nl-NL', { day: 'numeric', month: 'short' })}
+                    {ev.startTime && ` · ${ev.startTime}`}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* ─── COMBINED ATTENDANCE + BEHAVIOR + HOMEWORK TAB ─── */}
             {activeTab === 'attendance' && (

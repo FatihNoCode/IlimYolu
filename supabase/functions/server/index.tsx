@@ -4270,4 +4270,210 @@ app.delete("/make-server-6679cacd/oudergesprekken/:id", async (c) => {
   }
 });
 
+// ─── Agenda (lesson structure, vacation days, events) ───
+
+// Save / update the lesson-day structure for a school
+app.put("/make-server-6679cacd/agenda/settings", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const body = await c.req.json();
+    const { startDate, endDate, startTime, endTime, lessonDays } = body;
+    if (!startDate || !endDate || !startTime || !endTime) {
+      return c.json({ error: 'startDate, endDate, startTime, endTime required' }, 400);
+    }
+
+    const settings = {
+      schoolId,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      lessonDays: lessonDays || [0, 1, 2, 3, 4, 5, 6], // default all days
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`agenda_settings:${schoolId}`, settings);
+    return c.json({ success: true, settings });
+  } catch (err) {
+    console.log('Update agenda settings error:', err);
+    return c.json({ error: 'Failed to update agenda settings' }, 500);
+  }
+});
+
+// Get agenda settings (any authenticated user of the school)
+app.get("/make-server-6679cacd/agenda/settings", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+
+    let schoolId: string | undefined;
+    if (userData?.role === 'admin' || userData?.role === 'superadmin') {
+      const result = await resolveSchoolContext(c, userData);
+      schoolId = result.schoolId;
+    } else if (userData?.role === 'teacher') {
+      schoolId = userData.schoolId;
+    } else if (userData?.role === 'parent') {
+      schoolId = userData.schoolId;
+    }
+    if (!schoolId) return c.json({ error: 'No school context' }, 400);
+
+    const settings = await kv.get(`agenda_settings:${schoolId}`);
+    return c.json({ settings: settings || null });
+  } catch (err) {
+    console.log('Get agenda settings error:', err);
+    return c.json({ error: 'Failed to get agenda settings' }, 500);
+  }
+});
+
+// Add / update a vacation period
+app.post("/make-server-6679cacd/agenda/vacations", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const { id, name, startDate, endDate } = await c.req.json();
+    if (!name || !startDate || !endDate) return c.json({ error: 'name, startDate, endDate required' }, 400);
+
+    const vacationId = id || crypto.randomUUID();
+    const vacation = { id: vacationId, schoolId, name, startDate, endDate };
+
+    const ids: string[] = await kv.get(`agenda_vacation_ids:${schoolId}`) || [];
+    if (!ids.includes(vacationId)) ids.push(vacationId);
+    await kv.set(`agenda_vacation:${vacationId}`, vacation);
+    await kv.set(`agenda_vacation_ids:${schoolId}`, ids);
+
+    return c.json({ success: true, vacation });
+  } catch (err) {
+    console.log('Add vacation error:', err);
+    return c.json({ error: 'Failed to add vacation' }, 500);
+  }
+});
+
+// List vacation periods
+app.get("/make-server-6679cacd/agenda/vacations", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+
+    let schoolId: string | undefined;
+    if (userData?.role === 'admin' || userData?.role === 'superadmin') {
+      const result = await resolveSchoolContext(c, userData);
+      schoolId = result.schoolId;
+    } else {
+      schoolId = userData?.schoolId;
+    }
+    if (!schoolId) return c.json({ error: 'No school context' }, 400);
+
+    const ids: string[] = await kv.get(`agenda_vacation_ids:${schoolId}`) || [];
+    if (ids.length === 0) return c.json({ vacations: [] });
+    const vacations = await kv.mget(ids.map(i => `agenda_vacation:${i}`));
+    return c.json({ vacations: vacations.filter(Boolean) });
+  } catch (err) {
+    console.log('Get vacations error:', err);
+    return c.json({ error: 'Failed to get vacations' }, 500);
+  }
+});
+
+// Delete a vacation
+app.delete("/make-server-6679cacd/agenda/vacations/:id", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const id = c.req.param('id');
+    await kv.del(`agenda_vacation:${id}`);
+    const ids: string[] = await kv.get(`agenda_vacation_ids:${schoolId}`) || [];
+    await kv.set(`agenda_vacation_ids:${schoolId}`, ids.filter(i => i !== id));
+    return c.json({ success: true });
+  } catch (err) {
+    console.log('Delete vacation error:', err);
+    return c.json({ error: 'Failed to delete vacation' }, 500);
+  }
+});
+
+// Add / update an event
+app.post("/make-server-6679cacd/agenda/events", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const { id, title, date, startTime, endTime, description } = await c.req.json();
+    if (!title || !date) return c.json({ error: 'title, date required' }, 400);
+
+    const eventId = id || crypto.randomUUID();
+    const event = { id: eventId, schoolId, title, date, startTime: startTime || null, endTime: endTime || null, description: description || '' };
+
+    const ids: string[] = await kv.get(`agenda_event_ids:${schoolId}`) || [];
+    if (!ids.includes(eventId)) ids.push(eventId);
+    await kv.set(`agenda_event:${eventId}`, event);
+    await kv.set(`agenda_event_ids:${schoolId}`, ids);
+
+    return c.json({ success: true, event });
+  } catch (err) {
+    console.log('Add event error:', err);
+    return c.json({ error: 'Failed to add event' }, 500);
+  }
+});
+
+// List events
+app.get("/make-server-6679cacd/agenda/events", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+
+    let schoolId: string | undefined;
+    if (userData?.role === 'admin' || userData?.role === 'superadmin') {
+      const result = await resolveSchoolContext(c, userData);
+      schoolId = result.schoolId;
+    } else {
+      schoolId = userData?.schoolId;
+    }
+    if (!schoolId) return c.json({ error: 'No school context' }, 400);
+
+    const ids: string[] = await kv.get(`agenda_event_ids:${schoolId}`) || [];
+    if (ids.length === 0) return c.json({ events: [] });
+    const events = await kv.mget(ids.map(i => `agenda_event:${i}`));
+    return c.json({ events: events.filter(Boolean) });
+  } catch (err) {
+    console.log('Get events error:', err);
+    return c.json({ error: 'Failed to get events' }, 500);
+  }
+});
+
+// Delete an event
+app.delete("/make-server-6679cacd/agenda/events/:id", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const id = c.req.param('id');
+    await kv.del(`agenda_event:${id}`);
+    const ids: string[] = await kv.get(`agenda_event_ids:${schoolId}`) || [];
+    await kv.set(`agenda_event_ids:${schoolId}`, ids.filter(i => i !== id));
+    return c.json({ success: true });
+  } catch (err) {
+    console.log('Delete event error:', err);
+    return c.json({ error: 'Failed to delete event' }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

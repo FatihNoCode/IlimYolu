@@ -11,6 +11,7 @@ import AbsenceOverviewView from './AbsenceOverviewView';
 import OudergesprekkenView from './OudergesprekkenView';
 import UsersView from './UsersView';
 import ImportView from './ImportView';
+import AgendaView from './AgendaView';
 
 interface Metrics {
   totalStudents: number;
@@ -65,9 +66,9 @@ interface AdminDashboardProps {
 export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashboardProps) {
   const { language, setLanguage, apiRequest, user: currentUser } = useApp();
   const t = translations[language];
-  const [activeTab, setActiveTab] = useHashTab<'metrics' | 'entities' | 'users' | 'import' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen' | 'oudergesprekken'>(
+  const [activeTab, setActiveTab] = useHashTab<'metrics' | 'entities' | 'users' | 'import' | 'meldingen' | 'settings' | 'boekhouding' | 'inschrijvingen' | 'oudergesprekken' | 'agenda'>(
     'entities',
-    ['entities', 'users', 'import', 'meldingen', 'boekhouding', 'inschrijvingen', 'oudergesprekken', 'settings'] as const,
+    ['entities', 'users', 'import', 'meldingen', 'boekhouding', 'inschrijvingen', 'oudergesprekken', 'agenda', 'settings'] as const,
   );
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -318,6 +319,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
             <TabButton tab="boekhouding">{language === 'tr' ? 'Muhasebe' : 'Boekhouding'}</TabButton>
             <TabButton tab="inschrijvingen">{language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen'}</TabButton>
             <TabButton tab="oudergesprekken">{language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}</TabButton>
+            <TabButton tab="agenda">{language === 'tr' ? 'Ajanda' : 'Agenda'}</TabButton>
             <TabButton tab="settings">{language === 'tr' ? 'Ayarlar' : 'Instellingen'}</TabButton>
           </div>
 
@@ -481,6 +483,13 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
 
           {activeTab === 'oudergesprekken' && (
             <OudergesprekkenView
+              language={language}
+              apiRequest={apiRequest}
+            />
+          )}
+
+          {activeTab === 'agenda' && (
+            <AgendaView
               language={language}
               apiRequest={apiRequest}
             />
