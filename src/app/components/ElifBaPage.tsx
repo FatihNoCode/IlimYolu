@@ -705,9 +705,456 @@ function HarakatQuizGame({ letters, onComplete }: {
   );
 }
 
+// ─── Game: Balloon Pop ───────────────────────────────────────────────────────
+
+function BalloonPopGame({ letters, onComplete }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void;
+}) {
+  const play = useAudio();
+  const [queue] = useState(() => shuffle(letters).slice(0, 8));
+  const [idx, setIdx] = useState(0);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [frozen, setFrozen] = useState(false);
+  const frameRef = useRef<number>(0);
+  const scoreRef = useRef(0);
+  const livesRef = useRef(3);
+  scoreRef.current = score;
+  livesRef.current = lives;
+
+  type Balloon = { id: string; letter: ArabicLetter; x: number; speed: number; startTime: number; popped: boolean };
+  const [balloons, setBalloons] = useState<Balloon[]>([]);
+
+  const target = queue[idx];
+
+  useEffect(() => {
+    if (!target) return;
+    setFrozen(false);
+    const distractors = pick(LETTERS.filter(l => l.id !== target.id), 4);
+    const all = shuffle([target, ...distractors]);
+    const now = Date.now();
+    setBalloons(all.map((letter, i) => ({
+      id: `${letter.id}-${now}-${i}`,
+      letter,
+      x: 8 + (i * 18) + Math.random() * 5,
+      speed: 6 + Math.random() * 4,
+      startTime: now + i * 400,
+      popped: false,
+    })));
+    play(audioPath(target.id));
+  }, [idx, target]);
+
+  const getY = (b: Balloon) => {
+    if (b.popped) return 120;
+    const elapsed = (Date.now() - b.startTime) / 1000;
+    if (elapsed < 0) return 120;
+    return 100 - elapsed * b.speed;
+  };
+
+  useEffect(() => {
+    let active = true;
+    let escaped = false;
+    const animate = () => {
+      if (!active || escaped) return;
+      const targetBalloon = balloons.find(b => !b.popped && b.letter.id === target?.id);
+      if (targetBalloon && getY(targetBalloon) < -10 && !frozen) {
+        escaped = true;
+        setFrozen(true);
+        setBalloons(prev => prev.map(b => ({ ...b, popped: true })));
+        setLives(l => {
+          const nl = l - 1;
+          if (nl <= 0) { setTimeout(() => onComplete(scoreRef.current >= 6 ? 3 : scoreRef.current >= 4 ? 2 : 1), 300); return 0; }
+          return nl;
+        });
+        setFeedback('💨 Ontsnapt!');
+        setTimeout(() => { setFeedback(null); setIdx(i => i + 1); }, 900);
+        return;
+      }
+      frameRef.current = requestAnimationFrame(animate);
+    };
+    frameRef.current = requestAnimationFrame(animate);
+    return () => { active = false; cancelAnimationFrame(frameRef.current); };
+  });
+
+  const popBalloon = (balloonId: string, letter: ArabicLetter) => {
+    if (!target || frozen) return;
+    setBalloons(prev => prev.map(b => b.id === balloonId ? { ...b, popped: true } : b));
+    if (letter.id === target.id) {
+      play(audioPath(letter.id));
+      setScore(s => s + 1);
+      scoreRef.current += 1;
+      setFeedback('🎉 Pop!');
+      setFrozen(true);
+      setTimeout(() => {
+        setFeedback(null);
+        if (idx < queue.length - 1) setIdx(i => i + 1);
+        else onComplete(scoreRef.current >= 7 ? 3 : scoreRef.current >= 5 ? 2 : 1);
+      }, 700);
+    } else {
+      setLives(l => {
+        const nl = l - 1;
+        if (nl <= 0) { setTimeout(() => onComplete(scoreRef.current >= 6 ? 3 : scoreRef.current >= 4 ? 2 : 1), 300); return 0; }
+        return nl;
+      });
+      setFeedback('❌ Fout!');
+      setTimeout(() => setFeedback(null), 600);
+    }
+  };
+
+  if (!target) return null;
+
+  const BALLOON_COLORS = ['#f43f5e', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981'];
+
+  return (
+    <div className="flex flex-col items-center gap-3 p-4 h-full">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <span className="text-white font-bold text-lg">🎈 {score}/{queue.length}</span>
+      </div>
+
+      <button onClick={() => play(audioPath(target.id))}
+        className="px-5 py-2 rounded-full bg-white/20 border-2 border-white/40 text-white font-bold flex items-center gap-2 hover:bg-white/30 active:scale-95 transition">
+        🔊 Luister nogmaals
+      </button>
+
+      <p className="text-white/80 text-sm">Pop de ballon met: <strong>{target.nameNl}</strong></p>
+
+      <div className="relative w-full flex-1 min-h-[340px] rounded-3xl overflow-hidden bg-gradient-to-b from-sky-300/30 to-transparent">
+        {balloons.filter(b => !b.popped).map((b, i) => {
+          const y = getY(b);
+          if (y > 105 || y < -15) return null;
+          return (
+          <button
+            key={b.id}
+            onClick={() => popBalloon(b.id, b.letter)}
+            className="absolute hover:scale-110 active:scale-90"
+            style={{
+              left: `${b.x}%`,
+              bottom: `${100 - y}%`,
+              transform: 'translateX(-50%)',
+              transition: 'transform 0.1s',
+            }}
+          >
+            <div className="relative flex flex-col items-center">
+              <div className="w-16 h-20 rounded-full flex items-center justify-center shadow-lg relative overflow-hidden"
+                style={{ background: BALLOON_COLORS[i % BALLOON_COLORS.length] }}>
+                <div className="absolute top-2 left-3 w-4 h-6 bg-white/30 rounded-full rotate-[-20deg]" />
+                <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 32, color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+                  {b.letter.arabic}
+                </span>
+              </div>
+              <div className="w-0.5 h-6 bg-white/40" />
+            </div>
+          </button>
+          );
+        })}
+
+        {feedback && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-4xl font-bold text-white drop-shadow-lg animate-bounce">{feedback}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Game: Falling Letters Catch ─────────────────────────────────────────────
+
+function FallingLettersGame({ letters, onComplete }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void;
+}) {
+  const play = useAudio();
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [basketX, setBasketX] = useState(50);
+  const [fallingItems, setFallingItems] = useState<{ id: string; letter: ArabicLetter; x: number; y: number; isTarget: boolean }[]>([]);
+  const [targetLetter, setTargetLetter] = useState<ArabicLetter>(() => letters[Math.floor(Math.random() * letters.length)]);
+  const [combo, setCombo] = useState(0);
+  const [flash, setFlash] = useState<'good' | 'bad' | null>(null);
+  const gameAreaRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<number>(0);
+  const spawnRef = useRef<ReturnType<typeof setInterval>>();
+
+  useEffect(() => {
+    play(audioPath(targetLetter.id));
+  }, [targetLetter]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          clearInterval(timer);
+          onComplete(score >= 12 ? 3 : score >= 7 ? 2 : 1);
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    spawnRef.current = setInterval(() => {
+      const isTarget = Math.random() < 0.35;
+      const letter = isTarget ? targetLetter : LETTERS[Math.floor(Math.random() * LETTERS.length)];
+      setFallingItems(prev => [...prev, {
+        id: `${Date.now()}-${Math.random()}`,
+        letter,
+        x: 10 + Math.random() * 80,
+        y: -5,
+        isTarget: letter.id === targetLetter.id,
+      }]);
+    }, 900);
+    return () => clearInterval(spawnRef.current);
+  }, [targetLetter]);
+
+  useEffect(() => {
+    let active = true;
+    const animate = () => {
+      if (!active) return;
+      setFallingItems(prev => {
+        const updated = prev.map(item => ({ ...item, y: item.y + 1.2 }));
+        const caught = updated.filter(item => item.y >= 85 && Math.abs(item.x - basketX) < 15);
+        const escaped = updated.filter(item => item.y >= 100 && item.isTarget && !caught.includes(item));
+
+        caught.forEach(item => {
+          if (item.isTarget) {
+            setScore(s => s + 1);
+            setCombo(c => c + 1);
+            setFlash('good');
+            play(audioPath(item.letter.id));
+            setTimeout(() => setFlash(null), 300);
+          } else {
+            setLives(l => {
+              if (l <= 1) { onComplete(score >= 12 ? 3 : score >= 7 ? 2 : 1); return 0; }
+              return l - 1;
+            });
+            setCombo(0);
+            setFlash('bad');
+            setTimeout(() => setFlash(null), 300);
+          }
+        });
+
+        escaped.forEach(() => {
+          setCombo(0);
+        });
+
+        return updated.filter(item => item.y < 100 && !caught.includes(item));
+      });
+      frameRef.current = requestAnimationFrame(animate);
+    };
+    frameRef.current = requestAnimationFrame(animate);
+    return () => { active = false; cancelAnimationFrame(frameRef.current); };
+  }, [basketX, targetLetter]);
+
+  const handleMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!gameAreaRef.current) return;
+    const rect = gameAreaRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    setBasketX(Math.max(10, Math.min(90, pct)));
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2 p-4 h-full select-none">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <div className="flex items-center gap-2">
+          <span className="text-white font-bold">⏱️ {timeLeft}s</span>
+          <span className="text-yellow-300 font-bold">✨ {score}</span>
+        </div>
+      </div>
+
+      {combo >= 3 && (
+        <div className="text-yellow-300 font-black text-sm animate-pulse">🔥 {combo}x COMBO!</div>
+      )}
+
+      <div className="flex items-center gap-2 bg-white/20 rounded-full px-4 py-1">
+        <span className="text-white text-sm">Vang:</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 24, color: 'white' }}>{targetLetter.arabic}</span>
+        <span className="text-white/70 text-sm">({targetLetter.nameNl})</span>
+        <button onClick={() => play(audioPath(targetLetter.id))} className="text-lg">🔊</button>
+      </div>
+
+      <div
+        ref={gameAreaRef}
+        className={`relative w-full flex-1 min-h-[300px] rounded-3xl overflow-hidden transition-colors duration-200 ${
+          flash === 'good' ? 'bg-green-500/20' : flash === 'bad' ? 'bg-red-500/20' : 'bg-white/5'
+        }`}
+        onMouseMove={handleMove}
+        onTouchMove={handleMove}
+      >
+        {fallingItems.map(item => (
+          <div key={item.id} className="absolute transition-none"
+            style={{ left: `${item.x}%`, top: `${item.y}%`, transform: 'translate(-50%, -50%)' }}>
+            <div className="w-12 h-12 rounded-xl bg-white shadow-lg flex items-center justify-center">
+              <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 28 }}>{item.letter.arabic}</span>
+            </div>
+          </div>
+        ))}
+
+        {/* Basket */}
+        <div className="absolute bottom-2 transition-all duration-75"
+          style={{ left: `${basketX}%`, transform: 'translateX(-50%)' }}>
+          <div className="w-20 h-10 bg-amber-600 rounded-b-2xl rounded-t-lg border-4 border-amber-800 flex items-center justify-center shadow-xl">
+            <span className="text-xl">🧺</span>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-white/60 text-xs">👆 Beweeg de mand met je vinger of muis!</p>
+    </div>
+  );
+}
+
+// ─── Game: Whack-a-Mole ──────────────────────────────────────────────────────
+
+function WhackAMoleGame({ letters, onComplete }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void;
+}) {
+  const play = useAudio();
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [round, setRound] = useState(0);
+  const maxRounds = 10;
+  const [targetLetter, setTargetLetter] = useState<ArabicLetter>(letters[0]);
+  const [holes, setHoles] = useState<(ArabicLetter | null)[]>(Array(6).fill(null));
+  const [whacked, setWhacked] = useState<number | null>(null);
+  const [wrongHit, setWrongHit] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval>>();
+
+  const newRound = useCallback(() => {
+    const target = letters[Math.floor(Math.random() * letters.length)];
+    setTargetLetter(target);
+    setWhacked(null);
+    setWrongHit(null);
+
+    const holeContents: (ArabicLetter | null)[] = Array(6).fill(null);
+    const targetHole = Math.floor(Math.random() * 6);
+    holeContents[targetHole] = target;
+
+    const otherHoles = [0, 1, 2, 3, 4, 5].filter(i => i !== targetHole);
+    const numDistractors = Math.min(2 + Math.floor(round / 3), 4);
+    const distractorHoles = shuffle(otherHoles).slice(0, numDistractors);
+    const distractorLetters = LETTERS.filter(l => l.id !== target.id);
+    distractorHoles.forEach(h => {
+      holeContents[h] = distractorLetters[Math.floor(Math.random() * distractorLetters.length)];
+    });
+
+    setHoles(holeContents);
+    play(audioPath(target.id));
+  }, [letters, round]);
+
+  useEffect(() => {
+    newRound();
+  }, [round]);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setHoles(prev => {
+        const newHoles = [...prev];
+        const emptySlots = newHoles.map((h, i) => h === null ? i : -1).filter(i => i >= 0);
+        const filledSlots = newHoles.map((h, i) => h !== null ? i : -1).filter(i => i >= 0);
+        if (Math.random() < 0.3 && filledSlots.length > 2) {
+          const hideIdx = filledSlots[Math.floor(Math.random() * filledSlots.length)];
+          if (newHoles[hideIdx]?.id !== targetLetter.id) {
+            newHoles[hideIdx] = null;
+          }
+        }
+        if (Math.random() < 0.3 && emptySlots.length > 0) {
+          const showIdx = emptySlots[Math.floor(Math.random() * emptySlots.length)];
+          const distractors = LETTERS.filter(l => l.id !== targetLetter.id);
+          newHoles[showIdx] = distractors[Math.floor(Math.random() * distractors.length)];
+        }
+        return newHoles;
+      });
+    }, 1200);
+    return () => clearInterval(timerRef.current!);
+  }, [targetLetter]);
+
+  const whack = (holeIdx: number) => {
+    const letter = holes[holeIdx];
+    if (!letter) return;
+    if (letter.id === targetLetter.id) {
+      setWhacked(holeIdx);
+      setScore(s => s + 1);
+      play(audioPath(letter.id));
+      setTimeout(() => {
+        if (round < maxRounds - 1) setRound(r => r + 1);
+        else onComplete(score + 1 >= 8 ? 3 : score + 1 >= 5 ? 2 : 1);
+      }, 600);
+    } else {
+      setWrongHit(holeIdx);
+      setLives(l => {
+        if (l <= 1) { onComplete(score >= 8 ? 3 : score >= 5 ? 2 : 1); return 0; }
+        return l - 1;
+      });
+      setTimeout(() => setWrongHit(null), 500);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-4 p-4">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <span className="text-white font-bold">Ronde {round + 1}/{maxRounds}</span>
+        <span className="text-yellow-300 font-bold">🏆 {score}</span>
+      </div>
+
+      <div className="flex items-center gap-2 bg-white/20 rounded-full px-4 py-2">
+        <span className="text-white font-bold">Sla:</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 28, color: 'white' }}>{targetLetter.arabic}</span>
+        <span className="text-white/70">({targetLetter.nameNl})</span>
+        <button onClick={() => play(audioPath(targetLetter.id))} className="text-xl hover:scale-110 transition">🔊</button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 w-full max-w-sm mt-2">
+        {holes.map((letter, i) => (
+          <button
+            key={i}
+            onClick={() => letter && whack(i)}
+            className={`relative h-24 rounded-2xl flex items-center justify-center transition-all duration-150 ${
+              whacked === i ? 'bg-green-400 scale-95' :
+              wrongHit === i ? 'bg-red-400 scale-95 animate-pulse' :
+              letter ? 'bg-amber-900/60 hover:scale-105 active:scale-90 cursor-pointer' :
+              'bg-amber-900/30'
+            }`}
+            style={{ boxShadow: letter ? 'inset 0 -4px 8px rgba(0,0,0,0.3)' : 'inset 0 4px 8px rgba(0,0,0,0.3)' }}
+          >
+            {letter ? (
+              <div className={`flex flex-col items-center transition-all duration-200 ${
+                whacked === i ? 'scale-0' : 'animate-[mole-pop_0.3s_ease-out]'
+              }`}>
+                <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 42, color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                  {letter.arabic}
+                </span>
+              </div>
+            ) : (
+              <div className="w-12 h-4 rounded-full bg-amber-950/40" />
+            )}
+
+            {/* Hole rim */}
+            <div className="absolute bottom-0 left-0 right-0 h-4 bg-amber-900/80 rounded-b-2xl" />
+          </button>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes mole-pop {
+          from { transform: translateY(20px) scale(0.5); opacity: 0; }
+          to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Stage config ─────────────────────────────────────────────────────────────
 
-type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz';
+type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole';
 
 interface Stage {
   id: string;
@@ -723,9 +1170,12 @@ function buildStages(): Stage[] {
   WORLDS.forEach(world => {
     stages.push({ id: `${world.id}-learn`,       worldId: world.id, title: 'Leren',         emoji: '📖', game: 'learn',        description: 'Leer de letters kennen' });
     stages.push({ id: `${world.id}-listen`,      worldId: world.id, title: 'Luister & Kies', emoji: '👂', game: 'listen-pick',   description: 'Hoor de letter, kies de goede' });
+    stages.push({ id: `${world.id}-balloon`,     worldId: world.id, title: 'Ballonnen!',     emoji: '🎈', game: 'balloon-pop',   description: 'Pop de juiste ballon!' });
     stages.push({ id: `${world.id}-name`,        worldId: world.id, title: 'Naam Quiz',      emoji: '🔤', game: 'name-match',    description: 'Wat is de naam van de letter?' });
+    stages.push({ id: `${world.id}-whack`,       worldId: world.id, title: 'Meppen!',        emoji: '🔨', game: 'whack-a-mole',  description: 'Sla de goede letter!' });
     stages.push({ id: `${world.id}-drag`,        worldId: world.id, title: 'Sorteer!',       emoji: '🔀', game: 'drag-sort',     description: 'Sleep de letters op volgorde' });
     stages.push({ id: `${world.id}-memory`,      worldId: world.id, title: 'Geheugen',       emoji: '🃏', game: 'memory',        description: 'Vind de passende paren' });
+    stages.push({ id: `${world.id}-falling`,     worldId: world.id, title: 'Vangen!',        emoji: '🧺', game: 'falling-letters', description: 'Vang de vallende letters!' });
     if (world.id >= 2) {
       stages.push({ id: `${world.id}-harakat-l`, worldId: world.id, title: 'Harakats',       emoji: '🎵', game: 'harakat-learn', description: 'Leer fatha, damma, kasra' });
       stages.push({ id: `${world.id}-harakat-q`, worldId: world.id, title: 'Harakat Quiz',   emoji: '🎯', game: 'harakat-quiz',  description: 'Welke harakat hoor je?' });
@@ -833,6 +1283,9 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
     if (stage.game === 'memory') return <MemoryGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'harakat-learn') return <HarakatLearnGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'harakat-quiz') return <HarakatQuizGame letters={letters} onComplete={handleComplete} />;
+    if (stage.game === 'balloon-pop') return <BalloonPopGame letters={letters} onComplete={handleComplete} />;
+    if (stage.game === 'falling-letters') return <FallingLettersGame letters={letters} onComplete={handleComplete} />;
+    if (stage.game === 'whack-a-mole') return <WhackAMoleGame letters={letters} onComplete={handleComplete} />;
     return null;
   };
 
