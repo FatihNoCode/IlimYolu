@@ -3,6 +3,7 @@ import { useApp } from '../App';
 import { translations } from './translations';
 import { Plus, School, ArrowRight, RefreshCw, Inbox as InboxIcon } from 'lucide-react';
 import UserMenu from './UserMenu';
+import Sidebar from './Sidebar';
 import InboxView from './InboxView';
 import booksLogo from '../../imports/books__1_.png';
 
@@ -107,22 +108,20 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
           </div>
         </div>
 
-        <div className="flex gap-1.5 mb-4 sm:mb-6 bg-gray-100 rounded-xl p-1 w-fit">
-          <button
-            onClick={() => setTab('schools')}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tab === 'schools' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <School className="h-3.5 w-3.5" />
-            {t.schools}
-          </button>
-          <button
-            onClick={() => setTab('inbox')}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tab === 'inbox' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <InboxIcon className="h-3.5 w-3.5" />
-            {t.inbox}
-          </button>
-        </div>
+        <div className="flex gap-4 sm:gap-6 items-start">
+          <Sidebar
+            items={[
+              { id: 'schools', label: t.schools, icon: School },
+              { id: 'inbox', label: t.inbox, icon: InboxIcon },
+            ]}
+            activeId={tab}
+            onSelect={(id) => setTab(id as typeof tab)}
+            storageKey="ilimyolu:superadmin-sidebar-collapsed"
+            collapseLabel={language === 'tr' ? 'Daralt' : 'Inklappen'}
+            expandLabel={language === 'tr' ? 'Genişlet' : 'Uitklappen'}
+          />
+
+          <div className="flex-1 min-w-0">
 
         {tab === 'schools' && (
           <>
@@ -209,6 +208,9 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
         )}
 
         {tab === 'inbox' && <InboxView t={t} apiRequest={apiRequest} />}
+
+          </div>
+        </div>
       </div>
     </div>
   );

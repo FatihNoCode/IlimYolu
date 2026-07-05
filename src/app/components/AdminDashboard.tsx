@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import { useHashTab } from '../useHashTab';
 import { translations } from './translations';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Layers, Users, Upload, BellRing, Wallet, ClipboardList, MessageSquare, CalendarDays, Send, Settings } from 'lucide-react';
 import UserMenu from './UserMenu';
+import Sidebar from './Sidebar';
 import booksLogo from '../../imports/books__1_.png';
 import ManageEntitiesView from './ManageEntitiesView';
 import BoekhoudingView from './BoekhoudingView';
@@ -253,18 +254,18 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
     }
   };
 
-  const TabButton = ({ tab, children }: { tab: typeof activeTab; children: React.ReactNode }) => (
-    <button
-      onClick={() => setActiveTab(tab)}
-      className={`px-3 sm:px-4 py-2 rounded-lg font-semibold transition whitespace-nowrap text-xs sm:text-sm ${
-        activeTab === tab
-          ? 'bg-white text-emerald-700 shadow-sm'
-          : 'text-gray-500 hover:text-gray-700'
-      }`}
-    >
-      {children}
-    </button>
-  );
+  const navItems = [
+    { id: 'entities', label: language === 'tr' ? 'Sınıf Yönetimi' : 'Klassen beheer', icon: Layers },
+    { id: 'users', label: language === 'tr' ? 'Kullanıcılar' : 'Gebruikers', icon: Users },
+    { id: 'import', label: language === 'tr' ? 'İçe Aktar' : 'Importeren', icon: Upload },
+    { id: 'meldingen', label: language === 'tr' ? 'Hastalık Bildirimleri' : 'Ziekmeldingen', icon: BellRing },
+    { id: 'boekhouding', label: language === 'tr' ? 'Muhasebe' : 'Boekhouding', icon: Wallet },
+    { id: 'inschrijvingen', label: language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen', icon: ClipboardList },
+    { id: 'oudergesprekken', label: language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken', icon: MessageSquare },
+    { id: 'agenda', label: language === 'tr' ? 'Ajanda' : 'Agenda', icon: CalendarDays },
+    { id: 'communicatie', label: language === 'tr' ? 'İletişim' : 'Communicatie', icon: Send },
+    { id: 'settings', label: language === 'tr' ? 'Ayarlar' : 'Instellingen', icon: Settings },
+  ];
 
   return (
     <div className="size-full overflow-auto p-3 sm:p-4 md:p-6">
@@ -306,19 +307,17 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
           </button>
         )}
 
-        <div className="bg-white rounded-2xl shadow-sm shadow-gray-900/5 ring-1 ring-black/5 p-3 sm:p-4 md:p-6 mb-4 sm:mb-6">
-          <div className="flex gap-1 sm:gap-1.5 mb-4 sm:mb-6 bg-gray-100 rounded-xl p-1 overflow-x-auto">
-            <TabButton tab="entities">{language === 'tr' ? 'Sınıf Yönetimi' : 'Klassen beheer'}</TabButton>
-            <TabButton tab="users">{language === 'tr' ? 'Kullanıcılar' : 'Gebruikers'}</TabButton>
-            <TabButton tab="import">{language === 'tr' ? 'İçe Aktar' : 'Importeren'}</TabButton>
-            <TabButton tab="meldingen">{language === 'tr' ? 'Hastalık Bildirimleri' : 'Ziekmeldingen'}</TabButton>
-            <TabButton tab="boekhouding">{language === 'tr' ? 'Muhasebe' : 'Boekhouding'}</TabButton>
-            <TabButton tab="inschrijvingen">{language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen'}</TabButton>
-            <TabButton tab="oudergesprekken">{language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}</TabButton>
-            <TabButton tab="agenda">{language === 'tr' ? 'Ajanda' : 'Agenda'}</TabButton>
-            <TabButton tab="communicatie">{language === 'tr' ? 'İletişim' : 'Communicatie'}</TabButton>
-            <TabButton tab="settings">{language === 'tr' ? 'Ayarlar' : 'Instellingen'}</TabButton>
-          </div>
+        <div className="flex gap-4 sm:gap-6 items-start">
+          <Sidebar
+            items={navItems}
+            activeId={activeTab}
+            onSelect={(id) => setActiveTab(id as typeof activeTab)}
+            storageKey="ilimyolu:admin-sidebar-collapsed"
+            collapseLabel={language === 'tr' ? 'Daralt' : 'Inklappen'}
+            expandLabel={language === 'tr' ? 'Genişlet' : 'Uitklappen'}
+          />
+
+          <div className="flex-1 min-w-0 bg-white rounded-2xl shadow-sm shadow-gray-900/5 ring-1 ring-black/5 p-3 sm:p-4 md:p-6 mb-4 sm:mb-6">
 
           {activeTab === 'metrics' && metrics && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
@@ -496,6 +495,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
             />
           )}
 
+          </div>
         </div>
       </div>
     </div>
