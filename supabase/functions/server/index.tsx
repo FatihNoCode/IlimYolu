@@ -181,10 +181,18 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
     emailWrapper('Oudergesprek bevestigd', `
       <p style="color:#374151;line-height:1.6">Beste ouder,</p>
       <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd op <strong>${session.date}</strong> van <strong>${slot.start}</strong> tot <strong>${slot.end}</strong>.</p>
-      <p style="margin:20px 0">
-        <a href="${googleLink}" target="_blank" style="background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;margin-right:8px">Toevoegen aan Google Agenda</a>
-        <a href="${icsDataUri}" download="oudergesprek.ics" style="background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Toevoegen aan Apple/Outlook Agenda</a>
-      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0">
+        <tr>
+          <td style="padding-bottom:10px">
+            <a href="${googleLink}" target="_blank" style="display:block;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Google Agenda</a>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <a href="${icsDataUri}" download="oudergesprek.ics" style="display:block;background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Apple/Outlook Agenda</a>
+          </td>
+        </tr>
+      </table>
       <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
       <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
       <p style="color:#374151;line-height:1.6">Sayın veli,</p>
