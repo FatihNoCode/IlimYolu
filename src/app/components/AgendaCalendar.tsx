@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, X, Clock, Sun, PartyPopper, Calendar as CalendarIcon } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { ChevronLeft, ChevronRight, X, Clock, Sun, PartyPopper, Calendar as CalendarIcon, BookOpen } from 'lucide-react';
 
 interface Lesstructuur {
   id: string;
@@ -26,14 +26,24 @@ interface AgendaEvent {
   description: string;
 }
 
+interface Homework {
+  id: string;
+  classId: string;
+  studentIds: string[] | null;
+  description: string;
+  dueDate: string;
+}
+
 interface AgendaCalendarProps {
   language: 'tr' | 'nl';
   apiRequest: (endpoint: string, options?: RequestInit) => Promise<any>;
   refreshKey?: number;
+  // Teacher/parent calendars also surface homework due-dates as a red dot.
+  role?: 'admin' | 'superadmin' | 'teacher' | 'parent';
 }
 
-const DAY_NAMES_SHORT_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
-const DAY_NAMES_SHORT_TR = ['Pz', 'Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'];
+const DAY_NAMES_SHORT_NL = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
+const DAY_NAMES_SHORT_TR = ['Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct', 'Pz'];
 const MONTH_NAMES_NL = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
 const MONTH_NAMES_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
@@ -41,10 +51,20 @@ function toYMD(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function AgendaCalendar({ language, apiRequest, refreshKey }: AgendaCalendarProps) {
+// JS Date#getDay() is Sunday-first (0-6); the grid header is Monday-first.
+function mondayFirstIndex(dow: number) {
+  return (dow + 6) % 7;
+}
+
+export default function AgendaCalendar({ language, apiRequest, refreshKey, role }: AgendaCalendarProps) {
+  const showHomework = role === 'teacher' || role === 'parent';
+
   const [lesstructuren, setLesstructuren] = useState<Lesstructuur[]>([]);
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [homework, setHomework] = useState<Homework[]>([]);
+  const [classesById, setClassesById] = useState<Record<string, string>>({});
+  const [studentsById, setStudentsById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
@@ -55,22 +75,57 @@ export default function AgendaCalendar({ language, apiRequest, refreshKey }: Age
   const monthNames = language === 'tr' ? MONTH_NAMES_TR : MONTH_NAMES_NL;
   const dayNamesShort = language === 'tr' ? DAY_NAMES_SHORT_TR : DAY_NAMES_SHORT_NL;
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAll = useCallback(() => {
     setLoading(true);
-    Promise.all([
+    const requests: Promise<any>[] = [
       apiRequest('/agenda/lesstructuren'),
       apiRequest('/agenda/vacations'),
       apiRequest('/agenda/events'),
-    ]).then(([lsRes, vacRes, evtRes]) => {
-      if (cancelled) return;
+    ];
+    if (showHomework) {
+      requests.push(apiRequest('/homework').catch(() => ({ homework: [] })));
+      requests.push(apiRequest('/students').catch(() => ({ students: [] })));
+      requests.push(role === 'teacher' ? apiRequest('/classes').catch(() => ({ classes: [] })) : Promise.resolve({ classes: [] }));
+    }
+    return Promise.all(requests).then(([lsRes, vacRes, evtRes, hwRes, stuRes, clsRes]) => {
       setLesstructuren(lsRes.lesstructuren || []);
       setVacations(vacRes.vacations || []);
       setEvents(evtRes.events || []);
+      if (showHomework) {
+        setHomework(hwRes?.homework || []);
+        const stuMap: Record<string, string> = {};
+        (stuRes?.students || []).forEach((s: any) => { stuMap[s.id] = s.name; });
+        setStudentsById(stuMap);
+        const clsMap: Record<string, string> = {};
+        (clsRes?.classes || []).forEach((c: any) => { clsMap[c.id] = c.name; });
+        setClassesById(clsMap);
+      }
     }).catch(err => console.error('Load agenda calendar error:', err))
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => setLoading(false));
+  }, [apiRequest, showHomework, role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAll();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Cross-session freshness: agenda changes made by an admin in another
+  // session/tab won't push to an already-open calendar, so refetch whenever
+  // this tab regains focus/visibility, plus a light background poll.
+  useEffect(() => {
+    const onFocus = () => loadAll();
+    const onVisible = () => { if (document.visibilityState === 'visible') loadAll(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    const interval = setInterval(loadAll, 60000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(interval);
+    };
+  }, [loadAll]);
 
   const vacationForDate = useMemo(() => {
     return (ymd: string) => vacations.find(v => ymd >= v.startDate && ymd <= v.endDate);
@@ -85,10 +140,14 @@ export default function AgendaCalendar({ language, apiRequest, refreshKey }: Age
     return (ymd: string) => events.filter(e => e.date === ymd);
   }, [events]);
 
+  const homeworkForDate = useMemo(() => {
+    return (ymd: string) => homework.filter(hw => hw.dueDate === ymd);
+  }, [homework]);
+
   const year = monthCursor.getFullYear();
   const month = monthCursor.getMonth();
   const firstOfMonth = new Date(year, month, 1);
-  const startWeekday = firstOfMonth.getDay();
+  const startWeekday = mondayFirstIndex(firstOfMonth.getDay());
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayYmd = toYMD(new Date());
 
@@ -114,73 +173,81 @@ export default function AgendaCalendar({ language, apiRequest, refreshKey }: Age
     vacation: vacationForDate(selectedDate),
     lesstructuur: lesstructuurForDate(selectedDate, new Date(selectedDate + 'T00:00:00').getDay()),
     events: eventsForDate(selectedDate),
+    homework: homeworkForDate(selectedDate),
   } : null;
 
   if (loading) {
-    return <div className="text-center py-8 text-gray-500 text-sm">{language === 'tr' ? 'Yükleniyor...' : 'Laden...'}</div>;
+    return <div className="text-center py-6 text-gray-500 text-xs">{language === 'tr' ? 'Yükleniyor...' : 'Laden...'}</div>;
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-3 sm:p-4 md:p-6">
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={goPrevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
-          <ChevronLeft className="w-5 h-5" />
+    <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-2 sm:p-3 max-w-sm">
+      <div className="flex items-center justify-between mb-2">
+        <button onClick={goPrevMonth} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+          <ChevronLeft className="w-4 h-4" />
         </button>
-        <div className="flex items-center gap-2">
-          <h3 className="font-bold text-gray-800 text-sm sm:text-base">{monthNames[month]} {year}</h3>
-          <button onClick={goToday} className="text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full hover:bg-emerald-100">
+        <div className="flex items-center gap-1.5">
+          <h3 className="font-bold text-gray-800 text-xs sm:text-sm">{monthNames[month]} {year}</h3>
+          <button onClick={goToday} className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full hover:bg-emerald-100">
             {language === 'tr' ? 'Bugün' : 'Vandaag'}
           </button>
         </div>
-        <button onClick={goNextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
-          <ChevronRight className="w-5 h-5" />
+        <button onClick={goNextMonth} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 mb-1">
+      <div className="grid grid-cols-7 gap-0.5 mb-0.5">
         {dayNamesShort.map((n, i) => (
-          <div key={i} className="text-center text-[10px] sm:text-xs font-semibold text-gray-400 py-1">{n}</div>
+          <div key={i} className="text-center text-[8px] sm:text-[10px] font-semibold text-gray-400 py-0.5">{n}</div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-0.5">
         {cells.map((ymd, i) => {
           if (!ymd) return <div key={i} />;
           const dow = new Date(ymd + 'T00:00:00').getDay();
           const vacation = vacationForDate(ymd);
           const lesstructuur = lesstructuurForDate(ymd, dow);
           const dayEvents = eventsForDate(ymd);
+          const dayHomework = showHomework ? homeworkForDate(ymd) : [];
           const isToday = ymd === todayYmd;
           const dayNum = parseInt(ymd.split('-')[2], 10);
 
+          // Priority: vacation (no school) > event (special day) > lesson day.
           let bgClass = 'bg-white hover:bg-gray-50 border-gray-100';
-          if (vacation) bgClass = 'bg-yellow-100 hover:bg-yellow-200 border-yellow-300';
-          else if (lesstructuur) bgClass = 'bg-emerald-100 hover:bg-emerald-200 border-emerald-300';
+          let textClass = 'text-gray-600';
+          if (vacation) { bgClass = 'bg-yellow-100 hover:bg-yellow-200 border-yellow-300'; textClass = 'text-yellow-800'; }
+          else if (dayEvents.length > 0) { bgClass = 'bg-purple-100 hover:bg-purple-200 border-purple-300'; textClass = 'text-purple-800'; }
+          else if (lesstructuur) { bgClass = 'bg-emerald-100 hover:bg-emerald-200 border-emerald-300'; textClass = 'text-emerald-800'; }
 
           return (
             <button
               key={ymd}
               onClick={() => setSelectedDate(ymd)}
-              className={`relative aspect-square rounded-lg border text-xs sm:text-sm flex flex-col items-center justify-center transition ${bgClass} ${isToday ? 'ring-2 ring-emerald-600' : ''}`}
+              className={`relative aspect-square rounded-md border text-[9px] sm:text-[11px] flex flex-col items-center justify-center transition ${bgClass} ${isToday ? 'ring-1 ring-emerald-600' : ''}`}
             >
-              <span className={`font-medium ${vacation ? 'text-yellow-800' : lesstructuur ? 'text-emerald-800' : 'text-gray-600'}`}>{dayNum}</span>
-              {dayEvents.length > 0 && (
-                <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-purple-600" />
+              <span className={`font-medium ${textClass}`}>{dayNum}</span>
+              {dayHomework.length > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-red-600" />
               )}
             </button>
           );
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-4 text-[11px] sm:text-xs text-gray-500">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-300 inline-block" />{language === 'tr' ? 'Ders günü' : 'Lesdag'}</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-yellow-100 border border-yellow-300 inline-block" />{language === 'tr' ? 'Tatil' : 'Vakantie'}</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-600 inline-block" />{language === 'tr' ? 'Etkinlik' : 'Evenement'}</span>
+      <div className="flex flex-wrap gap-1.5 mt-2 text-[9px] sm:text-[10px] text-gray-500">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-100 border border-emerald-300 inline-block" />{language === 'tr' ? 'Ders günü' : 'Lesdag'}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-yellow-100 border border-yellow-300 inline-block" />{language === 'tr' ? 'Tatil' : 'Vakantie'}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-purple-100 border border-purple-300 inline-block" />{language === 'tr' ? 'Etkinlik' : 'Evenement'}</span>
+        {showHomework && (
+          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-600 inline-block" />{language === 'tr' ? 'Ödev' : 'Huiswerk'}</span>
+        )}
       </div>
 
-      {selected && (selected.vacation || selected.lesstructuur || selected.events.length > 0) && (
+      {selected && (selected.vacation || selected.lesstructuur || selected.events.length > 0 || selected.homework.length > 0) && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setSelectedDate(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-3">
               <h4 className="font-bold text-gray-800 capitalize text-sm sm:text-base">{formatDate(selected.ymd)}</h4>
               <button onClick={() => setSelectedDate(null)} className="text-gray-400 hover:text-gray-600">
@@ -220,12 +287,35 @@ export default function AgendaCalendar({ language, apiRequest, refreshKey }: Age
                   </div>
                 </div>
               ))}
+              {selected.homework.map(hw => {
+                const parts = (hw.description || '').split(' | ');
+                const text = language === 'tr' ? parts[0] : (parts[1] || parts[0]);
+                const isWholeClass = hw.studentIds === null;
+                const namedStudents = (hw.studentIds || []).map(id => studentsById[id]).filter(Boolean);
+                return (
+                  <div key={hw.id} className="flex items-start gap-2 bg-red-50 rounded-lg p-3">
+                    <BookOpen className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">{text}</p>
+                      {role === 'teacher' && (
+                        <p className="text-xs text-red-700 mt-0.5">
+                          {classesById[hw.classId] || hw.classId}
+                          {isWholeClass ? (language === 'tr' ? ' · Tüm sınıf' : ' · Hele klas') : ''}
+                        </p>
+                      )}
+                      {!isWholeClass && namedStudents.length > 0 && (
+                        <p className="text-xs text-red-600 mt-0.5">{namedStudents.join(', ')}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
       )}
 
-      {selected && !selected.vacation && !selected.lesstructuur && selected.events.length === 0 && (
+      {selected && !selected.vacation && !selected.lesstructuur && selected.events.length === 0 && selected.homework.length === 0 && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setSelectedDate(null)}>
           <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 text-center" onClick={e => e.stopPropagation()}>
             <CalendarIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />

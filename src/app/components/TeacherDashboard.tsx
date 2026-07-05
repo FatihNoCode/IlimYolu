@@ -1100,7 +1100,7 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
 
             {/* ─── AGENDA TAB ─── */}
             {activeTab === 'agenda' && (
-              <AgendaCalendar language={language} apiRequest={apiRequest} />
+              <AgendaCalendar language={language} apiRequest={apiRequest} role="teacher" />
             )}
           </div>
         )}

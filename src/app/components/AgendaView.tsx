@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Calendar, Sun, PartyPopper } from 'lucide-react';
+import { Plus, Trash2, Pencil, Calendar, Sun, PartyPopper } from 'lucide-react';
 import AgendaCalendar from './AgendaCalendar';
 
 interface Lesstructuur {
@@ -52,12 +52,14 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
 
   // Vacation form
   const [showVacationForm, setShowVacationForm] = useState(false);
+  const [editingVacationId, setEditingVacationId] = useState<string | null>(null);
   const [vacName, setVacName] = useState('');
   const [vacStart, setVacStart] = useState('');
   const [vacEnd, setVacEnd] = useState('');
 
   // Event form
   const [showEventForm, setShowEventForm] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [evtTitle, setEvtTitle] = useState('');
   const [evtDate, setEvtDate] = useState('');
   const [evtStart, setEvtStart] = useState('');
@@ -125,19 +127,32 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
     setLessonDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   };
 
-  const addVacation = async () => {
+  const saveVacation = async () => {
     if (!vacName || !vacStart || !vacEnd) return;
     try {
       await apiRequest('/agenda/vacations', {
         method: 'POST',
-        body: JSON.stringify({ name: vacName, startDate: vacStart, endDate: vacEnd }),
+        body: JSON.stringify({ id: editingVacationId || undefined, name: vacName, startDate: vacStart, endDate: vacEnd }),
       });
-      setVacName(''); setVacStart(''); setVacEnd('');
-      setShowVacationForm(false);
+      cancelVacationForm();
       refreshAll();
     } catch (err: any) {
       alert(err.message || 'Error');
     }
+  };
+
+  const editVacation = (v: Vacation) => {
+    setEditingVacationId(v.id);
+    setVacName(v.name);
+    setVacStart(v.startDate);
+    setVacEnd(v.endDate);
+    setShowVacationForm(true);
+  };
+
+  const cancelVacationForm = () => {
+    setEditingVacationId(null);
+    setVacName(''); setVacStart(''); setVacEnd('');
+    setShowVacationForm(false);
   };
 
   const deleteVacation = async (id: string) => {
@@ -146,19 +161,34 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
     refreshAll();
   };
 
-  const addEvent = async () => {
+  const saveEvent = async () => {
     if (!evtTitle || !evtDate) return;
     try {
       await apiRequest('/agenda/events', {
         method: 'POST',
-        body: JSON.stringify({ title: evtTitle, date: evtDate, startTime: evtStart || null, endTime: evtEnd || null, description: evtDesc }),
+        body: JSON.stringify({ id: editingEventId || undefined, title: evtTitle, date: evtDate, startTime: evtStart || null, endTime: evtEnd || null, description: evtDesc }),
       });
-      setEvtTitle(''); setEvtDate(''); setEvtStart(''); setEvtEnd(''); setEvtDesc('');
-      setShowEventForm(false);
+      cancelEventForm();
       refreshAll();
     } catch (err: any) {
       alert(err.message || 'Error');
     }
+  };
+
+  const editEvent = (ev: AgendaEvent) => {
+    setEditingEventId(ev.id);
+    setEvtTitle(ev.title);
+    setEvtDate(ev.date);
+    setEvtStart(ev.startTime || '');
+    setEvtEnd(ev.endTime || '');
+    setEvtDesc(ev.description || '');
+    setShowEventForm(true);
+  };
+
+  const cancelEventForm = () => {
+    setEditingEventId(null);
+    setEvtTitle(''); setEvtDate(''); setEvtStart(''); setEvtEnd(''); setEvtDesc('');
+    setShowEventForm(false);
   };
 
   const deleteEvent = async (id: string) => {
@@ -289,7 +319,7 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
             <Sun className="w-5 h-5" />
             {language === 'tr' ? 'Tatil Günleri' : 'Vakantiedagen'}
           </h3>
-          <button onClick={() => setShowVacationForm(v => !v)}
+          <button onClick={() => (showVacationForm ? cancelVacationForm() : setShowVacationForm(true))}
             className="flex items-center gap-1 bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-yellow-700 transition">
             <Plus className="w-4 h-4" />
             {language === 'tr' ? 'Ekle' : 'Toevoegen'}
@@ -314,11 +344,11 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={addVacation}
+              <button onClick={saveVacation}
                 className="bg-yellow-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-yellow-700">
-                {language === 'tr' ? 'Kaydet' : 'Opslaan'}
+                {editingVacationId ? (language === 'tr' ? 'Güncelle' : 'Bijwerken') : (language === 'tr' ? 'Kaydet' : 'Opslaan')}
               </button>
-              <button onClick={() => setShowVacationForm(false)}
+              <button onClick={cancelVacationForm}
                 className="text-gray-500 px-4 py-1.5 rounded-lg text-sm hover:bg-gray-100">
                 {language === 'tr' ? 'İptal' : 'Annuleren'}
               </button>
@@ -336,9 +366,14 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
                   <span className="font-medium text-sm">{v.name}</span>
                   <span className="text-xs text-gray-500 ml-2">{formatDate(v.startDate)} — {formatDate(v.endDate)}</span>
                 </div>
-                <button onClick={() => deleteVacation(v.id)} className="text-red-400 hover:text-red-600 p-1">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => editVacation(v)} className="text-gray-400 hover:text-yellow-700 p-1">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => deleteVacation(v.id)} className="text-red-400 hover:text-red-600 p-1">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -352,7 +387,7 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
             <PartyPopper className="w-5 h-5" />
             {language === 'tr' ? 'Etkinlikler' : 'Evenementen'}
           </h3>
-          <button onClick={() => setShowEventForm(v => !v)}
+          <button onClick={() => (showEventForm ? cancelEventForm() : setShowEventForm(true))}
             className="flex items-center gap-1 bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-purple-700 transition">
             <Plus className="w-4 h-4" />
             {language === 'tr' ? 'Ekle' : 'Toevoegen'}
@@ -385,11 +420,11 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
               value={evtDesc} onChange={e => setEvtDesc(e.target.value)}
               className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} />
             <div className="flex gap-2">
-              <button onClick={addEvent}
+              <button onClick={saveEvent}
                 className="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-purple-700">
-                {language === 'tr' ? 'Kaydet' : 'Opslaan'}
+                {editingEventId ? (language === 'tr' ? 'Güncelle' : 'Bijwerken') : (language === 'tr' ? 'Kaydet' : 'Opslaan')}
               </button>
-              <button onClick={() => setShowEventForm(false)}
+              <button onClick={cancelEventForm}
                 className="text-gray-500 px-4 py-1.5 rounded-lg text-sm hover:bg-gray-100">
                 {language === 'tr' ? 'İptal' : 'Annuleren'}
               </button>
@@ -411,9 +446,14 @@ export default function AgendaView({ language, apiRequest }: AgendaViewProps) {
                   </span>
                   {ev.description && <p className="text-xs text-gray-400 mt-0.5">{ev.description}</p>}
                 </div>
-                <button onClick={() => deleteEvent(ev.id)} className="text-red-400 hover:text-red-600 p-1">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => editEvent(ev)} className="text-gray-400 hover:text-purple-700 p-1">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => deleteEvent(ev.id)} className="text-red-400 hover:text-red-600 p-1">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

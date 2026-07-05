@@ -841,7 +841,7 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
           <h2 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-3">
             {language === 'tr' ? 'Ajanda' : 'Agenda'}
           </h2>
-          <AgendaCalendar language={language} apiRequest={apiRequest} />
+          <AgendaCalendar language={language} apiRequest={apiRequest} role="parent" />
         </div>
 
         {selectedChild && (
