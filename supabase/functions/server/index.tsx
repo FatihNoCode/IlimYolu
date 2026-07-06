@@ -2368,7 +2368,10 @@ app.get("/make-server-6679cacd/teachers", async (c) => {
     for (const t of allTeachers) {
       const classIds: string[] = await kv.get(`teacher_classes:${t.id}`) || [];
       const classes = await kv.mget(classIds.map((id: string) => `class:${id}`));
-      if (classes.some((cl: any) => cl && cl.schoolId === schoolId)) {
+      const inSchool = classes.some((cl: any) => cl && cl.schoolId === schoolId);
+      // Not-yet-assigned teachers (no classes anywhere yet) are still included —
+      // otherwise there's no way to ever assign them their first class.
+      if (classIds.length === 0 || inSchool) {
         teachers.push(t);
       }
     }
