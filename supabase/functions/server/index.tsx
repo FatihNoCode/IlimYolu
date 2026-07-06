@@ -5229,4 +5229,60 @@ app.post("/make-server-6679cacd/cron/tick", async (c) => {
   }
 });
 
+// ============= ELIF-BA LEADERBOARD (public, no auth) =============
+// The Elif-Ba game is reachable from the public login page (kids without an
+// account can play), so these endpoints are intentionally unauthenticated.
+// A player is identified only by a self-chosen display name; we keep their
+// best score. Input is tightly bounded to keep the KV store clean and to
+// avoid abuse.
+
+function normalizeName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(/\s+/g, ' ');
+  if (trimmed.length < 1 || trimmed.length > 24) return null;
+  // Strip control characters; allow letters/numbers/spaces/basic punctuation.
+  const cleaned = trimmed.replace(/[ -<>]/g, '');
+  return cleaned.length ? cleaned : null;
+}
+
+app.post("/make-server-6679cacd/elifba/score", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const name = normalizeName(body.name);
+    const stars = Number(body.stars);
+    if (!name) return c.json({ error: 'Invalid name' }, 400);
+    if (!Number.isFinite(stars) || stars < 0 || stars > 1000) {
+      return c.json({ error: 'Invalid score' }, 400);
+    }
+    const key = `elifba_score:${name.toLowerCase()}`;
+    const existing = await kv.get(key);
+    const best = Math.max(existing?.stars || 0, Math.floor(stars));
+    const record = {
+      name,
+      stars: best,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(key, record);
+    return c.json({ success: true, best });
+  } catch (err) {
+    console.log('Elifba score error:', err);
+    return c.json({ error: 'Failed to save score' }, 500);
+  }
+});
+
+app.get("/make-server-6679cacd/elifba/leaderboard", async (c) => {
+  try {
+    const all = await kv.getByPrefix('elifba_score:');
+    const top = all
+      .filter((r: any) => r && typeof r.name === 'string')
+      .sort((a: any, b: any) => (b.stars || 0) - (a.stars || 0) || (a.updatedAt || '').localeCompare(b.updatedAt || ''))
+      .slice(0, 20)
+      .map((r: any) => ({ name: r.name, stars: r.stars || 0 }));
+    return c.json({ leaderboard: top });
+  } catch (err) {
+    console.log('Elifba leaderboard error:', err);
+    return c.json({ error: 'Failed to load leaderboard' }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

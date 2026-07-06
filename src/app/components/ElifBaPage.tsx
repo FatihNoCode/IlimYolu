@@ -1,4 +1,48 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
+
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
+
+// ─── Bilingual UI strings ──────────────────────────────────────────────────────
+// Only the shared "chrome" (home, map, results, leaderboard, prompts) is
+// translated here; per-letter names already carry both languages in the data.
+
+type Lang = 'nl' | 'tr';
+
+const T = {
+  subtitle:        { nl: 'Arabische letters leren voor kinderen', tr: 'Çocuklar için Arapça harfleri öğrenin' },
+  start:           { nl: '🌟 Start!', tr: '🌟 Başla!' },
+  continue:        { nl: '▶ Doorgaan', tr: '▶ Devam et' },
+  starsEarned:     { nl: 'sterren verdiend!', tr: 'yıldız kazanıldı!' },
+  back:            { nl: '← Terug', tr: '← Geri' },
+  backToLogin:     { nl: '← Terug naar login', tr: '← Girişe dön' },
+  map:             { nl: '🗺️ Leerkaart', tr: '🗺️ Öğrenme haritası' },
+  leaderboard:     { nl: '🏆 Toppers', tr: '🏆 Sıralama' },
+  stars:           { nl: 'sterren', tr: 'yıldız' },
+  congrats:        { nl: 'Gefeliciteerd!', tr: 'Tebrikler!' },
+  perfect:         { nl: 'Perfecte score! Mashallah! 🌟', tr: 'Mükemmel! Maşallah! 🌟' },
+  good:            { nl: 'Goed gedaan! Blijf oefenen!', tr: 'Aferin! Alıştırmaya devam!' },
+  tryAgain:        { nl: 'Goed geprobeerd! Oefen nog een keer!', tr: 'İyi denemeydi! Bir daha dene!' },
+  mapBtn:          { nl: '🗺️ Kaart', tr: '🗺️ Harita' },
+  retry:           { nl: '🔄 Opnieuw', tr: '🔄 Tekrar' },
+  namePrompt:      { nl: 'Hoe heet je?', tr: 'Adın ne?' },
+  nameSub:         { nl: 'Zo kom je op de topperslijst! 🏆', tr: 'Böylece sıralamaya girersin! 🏆' },
+  namePlaceholder: { nl: 'Jouw naam', tr: 'Adın' },
+  letsGo:          { nl: "Let's go! 🚀", tr: 'Hadi başla! 🚀' },
+  noScores:        { nl: 'Nog geen toppers. Wees de eerste! 🌟', tr: 'Henüz kimse yok. İlk sen ol! 🌟' },
+  you:             { nl: 'jij', tr: 'sen' },
+  loading:         { nl: 'Laden...', tr: 'Yükleniyor...' },
+  forms:           { nl: 'De 4 vormen', tr: '4 şekil' },
+  formIsolated:    { nl: 'Los', tr: 'Yalın' },
+  formInitial:     { nl: 'Begin', tr: 'Baş' },
+  formMedial:      { nl: 'Midden', tr: 'Orta' },
+  formFinal:       { nl: 'Eind', tr: 'Son' },
+  tapToHear:       { nl: '👆 Tik op de letter om te horen!', tr: '👆 Duymak için harfe dokun!' },
+  next:            { nl: 'Volgende →', tr: 'İleri →' },
+  done:            { nl: '🎉 Klaar!', tr: '🎉 Bitti!' },
+};
+
+function tr(key: keyof typeof T, lang: Lang) { return T[key][lang]; }
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -88,6 +132,42 @@ function useLocalProgress() {
     });
   }, []);
   return { progress, setProgress };
+}
+
+function usePlayerName() {
+  const KEY = 'elifba_player_name';
+  const [name, setNameState] = useState<string>(() => {
+    try { return localStorage.getItem(KEY) || ''; } catch { return ''; }
+  });
+  const setName = useCallback((n: string) => {
+    const clean = n.trim().slice(0, 24);
+    setNameState(clean);
+    try { localStorage.setItem(KEY, clean); } catch { /* ignore */ }
+  }, []);
+  return { name, setName };
+}
+
+interface LeaderRow { name: string; stars: number; }
+
+async function submitScore(name: string, stars: number): Promise<void> {
+  if (!name) return;
+  try {
+    await fetch(`${API_BASE}/elifba/score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+      body: JSON.stringify({ name, stars }),
+    });
+  } catch { /* offline is fine, progress is stored locally */ }
+}
+
+async function fetchLeaderboard(): Promise<LeaderRow[]> {
+  try {
+    const res = await fetch(`${API_BASE}/elifba/leaderboard`, {
+      headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+    });
+    const data = await res.json();
+    return Array.isArray(data.leaderboard) ? data.leaderboard : [];
+  } catch { return []; }
 }
 
 function useAudio() {
@@ -214,16 +294,34 @@ function LearnGame({ letters, onComplete, lang }: {
         <p className="text-white/60 text-sm mt-1">{lang === 'nl' ? letter.nameTr : letter.nameNl}</p>
       </div>
 
-      <p className="text-white/80 text-sm">👆 Tik op de letter om te horen!</p>
+      <p className="text-white/80 text-sm">{tr('tapToHear', lang)}</p>
+
+      {/* Serious info: the four positional forms of the letter */}
+      <div className="bg-white/15 rounded-2xl px-4 py-3 w-full max-w-sm">
+        <p className="text-white/70 text-xs font-bold text-center mb-2">✍️ {tr('forms', lang)}</p>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {([
+            ['formIsolated', letter.forms.isolated],
+            ['formInitial',  letter.forms.initial],
+            ['formMedial',   letter.forms.medial],
+            ['formFinal',    letter.forms.final],
+          ] as const).map(([label, form]) => (
+            <div key={label} className="bg-white rounded-xl py-2 flex flex-col items-center gap-1">
+              <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 30, lineHeight: 1 }}>{form}</span>
+              <span className="text-[10px] font-bold text-gray-500">{tr(label as keyof typeof T, lang)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="flex gap-4 mt-2">
         <button onClick={prev} disabled={idx === 0}
           className="px-5 py-2 rounded-xl bg-white/20 text-white font-bold disabled:opacity-30 hover:bg-white/30 transition">
-          ← Terug
+          {tr('back', lang)}
         </button>
         <button onClick={next}
           className="px-6 py-2 rounded-xl bg-white text-emerald-700 font-bold hover:bg-emerald-50 shadow transition">
-          {idx < letters.length - 1 ? 'Volgende →' : '🎉 Klaar!'}
+          {idx < letters.length - 1 ? tr('next', lang) : tr('done', lang)}
         </button>
       </div>
     </div>
@@ -272,7 +370,6 @@ function ListenPickGame({ letters, allLetters, onComplete, lang }: {
     } else {
       setFeedback('wrong');
       setLives(l => l - 1);
-      play('/audio/alif.mp3'); // will just not crash
       setTimeout(() => {
         if (lives <= 1) { onComplete(1); return; }
         setFeedback(null);
@@ -877,17 +974,34 @@ function FallingLettersGame({ letters, onComplete }: {
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number>(0);
   const spawnRef = useRef<ReturnType<typeof setInterval>>();
+  // Keep the latest score/lives in refs so the interval/animation callbacks
+  // (which capture their initial closure) grade the game with the real total
+  // instead of a stale 0.
+  const scoreRef = useRef(0);
+  const livesRef = useRef(3);
+  scoreRef.current = score;
+  livesRef.current = lives;
+  const finalStars = () => (scoreRef.current >= 12 ? 3 : scoreRef.current >= 7 ? 2 : 1);
 
   useEffect(() => {
     play(audioPath(targetLetter.id));
   }, [targetLetter]);
+
+  // Rotate the target letter every few seconds so the child practises the
+  // whole set rather than a single letter for the full 30 seconds.
+  useEffect(() => {
+    const rotate = setInterval(() => {
+      setTargetLetter(letters[Math.floor(Math.random() * letters.length)]);
+    }, 6000);
+    return () => clearInterval(rotate);
+  }, [letters]);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft(t => {
         if (t <= 1) {
           clearInterval(timer);
-          onComplete(score >= 12 ? 3 : score >= 7 ? 2 : 1);
+          onComplete(finalStars());
           return 0;
         }
         return t - 1;
@@ -929,7 +1043,7 @@ function FallingLettersGame({ letters, onComplete }: {
             setTimeout(() => setFlash(null), 300);
           } else {
             setLives(l => {
-              if (l <= 1) { onComplete(score >= 12 ? 3 : score >= 7 ? 2 : 1); return 0; }
+              if (l <= 1) { onComplete(finalStars()); return 0; }
               return l - 1;
             });
             setCombo(0);
@@ -1154,7 +1268,7 @@ function WhackAMoleGame({ letters, onComplete }: {
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 
-type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole';
+type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole' | 'review';
 
 interface Stage {
   id: string;
@@ -1179,6 +1293,9 @@ function buildStages(): Stage[] {
     if (world.id >= 2) {
       stages.push({ id: `${world.id}-harakat-l`, worldId: world.id, title: 'Harakats',       emoji: '🎵', game: 'harakat-learn', description: 'Leer fatha, damma, kasra' });
       stages.push({ id: `${world.id}-harakat-q`, worldId: world.id, title: 'Harakat Quiz',   emoji: '🎯', game: 'harakat-quiz',  description: 'Welke harakat hoor je?' });
+      // Spaced repetition: mix in letters from earlier worlds so nothing
+      // learned before is forgotten.
+      stages.push({ id: `${world.id}-review`,    worldId: world.id, title: 'Herhaling',      emoji: '🔁', game: 'review',        description: 'Alles wat je al kent' });
     }
   });
   return stages;
@@ -1274,8 +1391,11 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
   };
 
   const letters = world.letters;
+  // Review stages quiz every letter learned up to and including this world.
+  const reviewLetters = LETTERS.slice(0, world.id * 7);
 
   const renderGame = () => {
+    if (stage.game === 'review') return <NameMatchGame letters={pick(reviewLetters, Math.min(8, reviewLetters.length))} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'learn') return <LearnGame letters={letters} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'listen-pick') return <ListenPickGame letters={letters} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'name-match') return <NameMatchGame letters={letters} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
@@ -1295,7 +1415,7 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
 
       {/* Header */}
       <div className="flex items-center justify-between p-4">
-        <button onClick={onBack} className="text-white/80 hover:text-white font-bold text-lg transition">← Terug</button>
+        <button onClick={onBack} className="text-white/80 hover:text-white font-bold text-lg transition">{tr('back', lang)}</button>
         <div className="text-center">
           <p className="text-white font-bold">{stage.emoji} {stage.title}</p>
         </div>
@@ -1305,18 +1425,18 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
       {done ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-6 p-6">
           <div className="text-8xl animate-bounce">{earnedStars === 3 ? '🏆' : earnedStars === 2 ? '🥈' : '🥉'}</div>
-          <h2 className="text-white text-3xl font-bold">Gefeliciteerd!</h2>
+          <h2 className="text-white text-3xl font-bold">{tr('congrats', lang)}</h2>
           <Stars count={earnedStars} />
           <p className="text-white/80 text-center">
-            {earnedStars === 3 ? 'Perfecte score! Mashallah! 🌟' : earnedStars === 2 ? 'Goed gedaan! Blijf oefenen!' : 'Goed geprobeerd! Oefen nog een keer!'}
+            {earnedStars === 3 ? tr('perfect', lang) : earnedStars === 2 ? tr('good', lang) : tr('tryAgain', lang)}
           </p>
           <div className="flex gap-3 mt-4">
             <button onClick={onBack} className="px-6 py-3 rounded-xl bg-white/20 text-white font-bold hover:bg-white/30 transition">
-              🗺️ Kaart
+              {tr('mapBtn', lang)}
             </button>
             <button onClick={() => { setDone(false); setShowConfetti(false); }}
               className="px-6 py-3 rounded-xl bg-white text-gray-800 font-bold shadow hover:bg-gray-50 transition">
-              🔄 Opnieuw
+              {tr('retry', lang)}
             </button>
           </div>
         </div>
@@ -1331,16 +1451,112 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
 
 // ─── Main ElifBa Page ─────────────────────────────────────────────────────────
 
-export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
-  const [lang] = useState<'nl' | 'tr'>('nl');
-  const [view, setView] = useState<'home' | 'map' | { stageId: string }>('home');
-  const { progress, setProgress } = useLocalProgress();
+// ─── Leaderboard view ──────────────────────────────────────────────────────────
 
-  const handleComplete = (stageId: string, stars: number) => {
-    setProgress(p => ({ ...p, [stageId]: Math.max(p[stageId] || 0, stars) }));
-  };
+function LeaderboardView({ lang, playerName, onBack }: { lang: Lang; playerName: string; onBack: () => void }) {
+  const [rows, setRows] = useState<LeaderRow[] | null>(null);
+
+  useEffect(() => { fetchLeaderboard().then(setRows); }, []);
+
+  const medal = (i: number) => (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`);
+
+  return (
+    <div className="min-h-full bg-gradient-to-b from-indigo-600 via-purple-700 to-fuchsia-800 flex flex-col">
+      <div className="flex items-center justify-between p-4 sticky top-0 bg-indigo-700/80 backdrop-blur z-10">
+        <button onClick={onBack} className="text-white/80 hover:text-white font-bold transition">{tr('back', lang)}</button>
+        <h1 className="text-white font-bold text-xl">{tr('leaderboard', lang)}</h1>
+        <span className="w-12" />
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        {rows === null ? (
+          <p className="text-white/70 text-center mt-10">{tr('loading', lang)}</p>
+        ) : rows.length === 0 ? (
+          <p className="text-white/70 text-center mt-10">{tr('noScores', lang)}</p>
+        ) : (
+          <div className="flex flex-col gap-2 max-w-md mx-auto">
+            {rows.map((r, i) => {
+              const isMe = playerName && r.name.toLowerCase() === playerName.toLowerCase();
+              return (
+                <div key={`${r.name}-${i}`}
+                  className={`flex items-center gap-3 rounded-2xl px-4 py-3 shadow ${isMe ? 'bg-yellow-300 text-gray-900' : 'bg-white/15 text-white'}`}>
+                  <span className="text-xl font-black w-8 text-center">{medal(i)}</span>
+                  <span className="flex-1 font-bold truncate">{r.name}{isMe && <span className="ml-1 text-xs opacity-70">({tr('you', lang)})</span>}</span>
+                  <span className="font-bold">⭐ {r.stars}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Name entry ─────────────────────────────────────────────────────────────────
+
+function NameEntry({ lang, onSubmit }: { lang: Lang; onSubmit: (name: string) => void }) {
+  const [value, setValue] = useState('');
+  const submit = () => { const v = value.trim(); if (v) onSubmit(v); };
+  return (
+    <div className="min-h-full bg-gradient-to-b from-emerald-500 via-teal-600 to-cyan-700 flex flex-col items-center justify-center gap-6 p-6">
+      <div className="w-28 h-28 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shadow-2xl">
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 56, color: 'white' }}>أ ب</span>
+      </div>
+      <h1 className="text-3xl font-black text-white text-center">{tr('namePrompt', lang)}</h1>
+      <p className="text-white/80 text-center">{tr('nameSub', lang)}</p>
+      <input
+        autoFocus
+        value={value}
+        maxLength={24}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+        placeholder={tr('namePlaceholder', lang)}
+        className="w-full max-w-xs px-5 py-4 rounded-2xl text-center text-xl font-bold text-gray-800 shadow-lg outline-none focus:ring-4 ring-yellow-300"
+      />
+      <button onClick={submit} disabled={!value.trim()}
+        className="px-10 py-4 rounded-3xl bg-white text-emerald-700 font-black text-xl shadow-2xl hover:scale-105 active:scale-95 transition disabled:opacity-40">
+        {tr('letsGo', lang)}
+      </button>
+    </div>
+  );
+}
+
+// ─── Main ElifBa Page ─────────────────────────────────────────────────────────
+
+export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
+  const [lang, setLang] = useState<Lang>(() => {
+    try { return (localStorage.getItem('elifba_lang') as Lang) || 'nl'; } catch { return 'nl'; }
+  });
+  const toggleLang = () => setLang(prev => {
+    const next: Lang = prev === 'nl' ? 'tr' : 'nl';
+    try { localStorage.setItem('elifba_lang', next); } catch { /* ignore */ }
+    return next;
+  });
+
+  const [view, setView] = useState<'home' | 'map' | 'leaderboard' | 'name' | { stageId: string }>('home');
+  const { progress, setProgress } = useLocalProgress();
+  const { name, setName } = usePlayerName();
 
   const totalStars = ALL_STAGES.reduce((sum, s) => sum + (progress[s.id] || 0), 0);
+
+  const handleComplete = (stageId: string, stars: number) => {
+    setProgress(p => {
+      const next = { ...p, [stageId]: Math.max(p[stageId] || 0, stars) };
+      const newTotal = ALL_STAGES.reduce((sum, s) => sum + (next[s.id] || 0), 0);
+      if (name) submitScore(name, newTotal);
+      return next;
+    });
+  };
+
+  // "Start" always makes sure we have a player name first (for the leaderboard).
+  const startPlaying = () => setView(name ? 'map' : 'name');
+
+  const LangButton = (
+    <button onClick={toggleLang}
+      className="px-3 py-1.5 rounded-full bg-white/20 text-white font-bold text-sm hover:bg-white/30 transition">
+      {lang === 'nl' ? '🇳🇱 NL' : '🇹🇷 TR'}
+    </button>
+  );
 
   if (typeof view === 'object') {
     return (
@@ -1354,13 +1570,24 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
     );
   }
 
+  if (view === 'name') {
+    return <NameEntry lang={lang} onSubmit={n => { setName(n); submitScore(n, totalStars); setView('map'); }} />;
+  }
+
+  if (view === 'leaderboard') {
+    return <LeaderboardView lang={lang} playerName={name} onBack={() => setView('home')} />;
+  }
+
   if (view === 'map') {
     return (
       <div className="min-h-full bg-slate-700 flex flex-col">
         <div className="flex items-center justify-between p-4 sticky top-0 bg-indigo-600/80 backdrop-blur z-10">
-          <button onClick={() => setView('home')} className="text-white/80 hover:text-white font-bold transition">← Terug</button>
-          <h1 className="text-white font-bold text-xl">🗺️ Leerkaart</h1>
-          <span className="text-yellow-300 font-bold">⭐ {totalStars}</span>
+          <button onClick={() => setView('home')} className="text-white/80 hover:text-white font-bold transition">{tr('back', lang)}</button>
+          <h1 className="text-white font-bold text-xl">{tr('map', lang)}</h1>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setView('leaderboard')} className="text-lg hover:scale-110 transition" title={tr('leaderboard', lang)}>🏆</button>
+            <span className="text-yellow-300 font-bold">⭐ {totalStars}</span>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           <WorldMap progress={progress} onSelectStage={stageId => setView({ stageId })} lang={lang} />
@@ -1372,11 +1599,14 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
   // Home screen
   return (
     <div className="min-h-full bg-gradient-to-b from-emerald-500 via-teal-600 to-cyan-700 flex flex-col items-center justify-between p-6">
-      {onBack && (
-        <button onClick={onBack} className="self-start text-white/70 hover:text-white font-bold transition text-sm">
-          ← Terug naar login
-        </button>
-      )}
+      <div className="w-full flex items-center justify-between">
+        {onBack ? (
+          <button onClick={onBack} className="text-white/70 hover:text-white font-bold transition text-sm">
+            {tr('backToLogin', lang)}
+          </button>
+        ) : <span />}
+        {LangButton}
+      </div>
 
       <div className="flex-1 flex flex-col items-center justify-center gap-8 text-center">
         {/* Logo */}
@@ -1392,19 +1622,25 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
         <div>
           <h1 className="text-5xl font-black text-white drop-shadow-lg">Elif-Ba</h1>
           <p className="text-white/80 text-lg mt-2 font-semibold">Leren / Öğren</p>
-          <p className="text-white/60 text-sm mt-1">Arabische letters leren voor kinderen</p>
+          <p className="text-white/60 text-sm mt-1">{tr('subtitle', lang)}</p>
+          {name && <p className="text-white/80 text-sm mt-2 font-bold">👋 {name}</p>}
         </div>
 
         {totalStars > 0 && (
           <div className="bg-white/20 rounded-2xl px-6 py-3 flex items-center gap-3">
             <span className="text-3xl">⭐</span>
-            <span className="text-white font-bold text-xl">{totalStars} sterren verdiend!</span>
+            <span className="text-white font-bold text-xl">{totalStars} {tr('starsEarned', lang)}</span>
           </div>
         )}
 
-        <button onClick={() => setView('map')}
+        <button onClick={startPlaying}
           className="mt-2 px-12 py-5 rounded-3xl bg-white text-emerald-700 font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all duration-150">
-          {totalStars > 0 ? '▶ Doorgaan' : '🌟 Start!'}
+          {totalStars > 0 ? tr('continue', lang) : tr('start', lang)}
+        </button>
+
+        <button onClick={() => setView('leaderboard')}
+          className="px-6 py-2 rounded-2xl bg-white/20 text-white font-bold hover:bg-white/30 transition">
+          {tr('leaderboard', lang)}
         </button>
 
         <div className="flex gap-4 text-center mt-2">
@@ -1414,15 +1650,15 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
           </div>
           <div className="bg-white/10 rounded-xl p-3">
             <p className="text-2xl">🎵</p>
-            <p className="text-white/80 text-xs">Echte audio</p>
+            <p className="text-white/80 text-xs">{lang === 'tr' ? 'Gerçek ses' : 'Echte audio'}</p>
           </div>
           <div className="bg-white/10 rounded-xl p-3">
             <p className="text-2xl">🏆</p>
-            <p className="text-white/80 text-xs">Sterren</p>
+            <p className="text-white/80 text-xs">{tr('stars', lang)}</p>
           </div>
           <div className="bg-white/10 rounded-xl p-3">
             <p className="text-2xl">🎮</p>
-            <p className="text-white/80 text-xs">Spelletjes</p>
+            <p className="text-white/80 text-xs">{lang === 'tr' ? 'Oyunlar' : 'Spelletjes'}</p>
           </div>
         </div>
       </div>
