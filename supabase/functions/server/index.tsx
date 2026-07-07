@@ -105,25 +105,49 @@ async function createNotification(userId: string, opts: {
 // notification flow (signup, payments, inschrijvingen, status changes,
 // absence alerts) routes through this so the from-address and error
 // handling stay consistent in one place.
-async function sendEmail(to: string, subject: string, html: string) {
+// Optional file attachments (e.g. an .ics calendar invite). `content` is the
+// raw string; it is base64-encoded here as Resend requires.
+interface EmailAttachment {
+  filename: string;
+  content: string;
+  contentType?: string;
+}
+
+// UTF-8 safe base64 (btoa alone breaks on Turkish characters like ü/ğ/ş).
+function toBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+async function sendEmail(to: string, subject: string, html: string, attachments?: EmailAttachment[]) {
   const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
   if (!RESEND_API_KEY) {
     console.log('RESEND_API_KEY not configured, skipping email to', to);
     return false;
   }
   try {
+    const payload: Record<string, unknown> = {
+      from: 'Ilim Yolu <info@ilimyolu.com>',
+      to: [to],
+      subject,
+      html,
+    };
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments.map((a) => ({
+        filename: a.filename,
+        content: toBase64(a.content),
+        content_type: a.contentType,
+      }));
+    }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: 'Ilim Yolu <info@ilimyolu.com>',
-        to: [to],
-        subject,
-        html,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       console.log(`Resend error for ${to}:`, await res.text());
@@ -253,7 +277,12 @@ app.get("/make-server-6679cacd/ics", (c) => {
 async function sendConferenceConfirmationEmail(to: string, session: any, slot: any, studentName: string) {
   const title = `Oudergesprek ${studentName} | Veli Görüşmesi`;
   const description = `Oudergesprek voor ${studentName} bij Ilim Yolu.`;
-  const { icsLink, googleLink } = buildCalendarLinks(session.date, slot.start, slot.end, title, description, to);
+  const { googleLink } = buildCalendarLinks(session.date, slot.start, slot.end, title, description, to);
+
+  // Attach the invite as a real .ics file named "oudergesprek". Apple Mail
+  // (and Outlook) show a native "Add to Calendar" banner for this, so the
+  // parent can accept the meeting without any browser detour.
+  const icsContent = buildIcsContent(session.date, slot.start, slot.end, title, description, to);
 
   return sendEmail(
     to,
@@ -261,15 +290,11 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
     emailWrapper('Oudergesprek bevestigd', `
       <p style="color:#374151;line-height:1.6">Beste ouder,</p>
       <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd op <strong>${session.date}</strong> van <strong>${slot.start}</strong> tot <strong>${slot.end}</strong>.</p>
+      <p style="color:#374151;line-height:1.6">De afspraak zit als bijlage (<strong>oudergesprek.ics</strong>) bij deze e-mail — open deze om de afspraak aan uw agenda toe te voegen. U kunt ook Google Agenda gebruiken:</p>
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0">
         <tr>
-          <td style="padding-bottom:10px">
-            <a href="${googleLink}" target="_blank" style="display:block;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Google Agenda</a>
-          </td>
-        </tr>
-        <tr>
           <td>
-            <a href="${icsLink}" style="display:block;background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Apple/Outlook Agenda</a>
+            <a href="${googleLink}" target="_blank" style="display:block;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Google Agenda</a>
           </td>
         </tr>
       </table>
@@ -277,7 +302,9 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
       <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
       <p style="color:#374151;line-height:1.6">Sayın veli,</p>
       <p style="color:#374151;line-height:1.6"><strong>${studentName}</strong> için görüşme saati <strong>${session.date}</strong> tarihinde <strong>${slot.start}</strong> - <strong>${slot.end}</strong> olarak onaylanmıştır.</p>
-    `)
+      <p style="color:#374151;line-height:1.6">Randevu, bu e-postaya ek olarak (<strong>oudergesprek.ics</strong>) eklenmiştir — takviminize eklemek için açın.</p>
+    `),
+    [{ filename: 'oudergesprek.ics', content: icsContent, contentType: 'text/calendar' }],
   );
 }
 
