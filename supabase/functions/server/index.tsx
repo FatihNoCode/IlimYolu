@@ -272,8 +272,48 @@ app.get("/make-server-6679cacd/ics", (c) => {
   });
 });
 
+const DUTCH_MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+
+// "2026-06-24" -> "24 juni 2026". Falls back to the raw string if it can't
+// be parsed.
+function formatDutchDate(dateStr: string): string {
+  const parts = String(dateStr).split('-').map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d || m < 1 || m > 12) return dateStr;
+  return `${d} ${DUTCH_MONTHS[m - 1]} ${y}`;
+}
+
+// Renders a styled "details box" card (like the ones recruiting/calendar
+// tools send) summarising the appointment. Rows are simple label/value pairs
+// so it renders consistently across mail clients (inline styles, no flexbox).
+function buildEventCard(opts: {
+  heading: string;
+  rows: { label: string; value: string }[];
+  googleLink: string;
+}): string {
+  const font = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Helvetica,Arial,sans-serif`;
+  const rowsHtml = opts.rows.map((r, i) => `
+        <div style="${i > 0 ? 'margin-top:16px;' : ''}">
+          <div style="color:#5d566c;line-height:24px;font-size:14px;font-family:${font}">${r.label}</div>
+          <div style="color:#141217;line-height:24px;font-size:14px;font-family:${font}">${r.value}</div>
+        </div>`).join('');
+  return `
+      <div style="border:1px solid #dcd8e4;border-radius:8px;background:#ffffff;max-width:420px;margin:20px 0;font-family:${font}">
+        <div style="padding:16px 20px">
+          <div style="font-size:16px;font-weight:bold;line-height:24px;color:#141217;font-family:${font}">${opts.heading}</div>
+        </div>
+        <div style="padding:0 20px 16px">${rowsHtml}
+        </div>
+        <div style="border-top:1px solid #dcd8e4;width:100%"></div>
+        <div style="padding:16px 20px 20px">
+          <a href="${opts.googleLink}" target="_blank" style="background-color:#059669;font-size:14px;font-weight:600;padding:10px 16px;display:inline-block;color:#ffffff;border-radius:8px;line-height:20px;text-decoration:none;font-family:${font}">Toevoegen aan Google Agenda</a>
+        </div>
+      </div>`;
+}
+
 // Sends (or re-sends, on reschedule) the oudergesprek booking confirmation
-// email with "add to calendar" links for the specific slot.
+// email with a styled details card, an "add to Google Agenda" link, and the
+// invite as an .ics attachment for the specific slot.
 async function sendConferenceConfirmationEmail(to: string, session: any, slot: any, studentName: string) {
   const title = `Oudergesprek ${studentName} | Veli Görüşmesi`;
   const description = `Oudergesprek voor ${studentName} bij Ilim Yolu.`;
@@ -284,25 +324,28 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
   // parent can accept the meeting without any browser detour.
   const icsContent = buildIcsContent(session.date, slot.start, slot.end, title, description, to);
 
+  const card = buildEventCard({
+    heading: `Oudergesprek ${studentName}`,
+    rows: [
+      { label: 'Wanneer · Ne zaman', value: `${formatDutchDate(session.date)} &middot; ${slot.start} – ${slot.end}` },
+      { label: 'Tijdzone · Saat dilimi', value: '(GMT+02:00) Europe/Amsterdam' },
+      { label: 'Locatie · Yer', value: 'Ilim Yolu' },
+      { label: 'Leerling · Öğrenci', value: studentName },
+    ],
+    googleLink,
+  });
+
   return sendEmail(
     to,
     `Bevestiging tijdslot oudergesprek | Veli Görüşmesi Onayı - Ilim Yolu`,
     emailWrapper('Oudergesprek bevestigd', `
       <p style="color:#374151;line-height:1.6">Beste ouder,</p>
-      <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd op <strong>${session.date}</strong> van <strong>${slot.start}</strong> tot <strong>${slot.end}</strong>.</p>
-      <p style="color:#374151;line-height:1.6">De afspraak zit als bijlage (<strong>oudergesprek.ics</strong>) bij deze e-mail — open deze om de afspraak aan uw agenda toe te voegen. U kunt ook Google Agenda gebruiken:</p>
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0">
-        <tr>
-          <td>
-            <a href="${googleLink}" target="_blank" style="display:block;background:#059669;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Google Agenda</a>
-          </td>
-        </tr>
-      </table>
+      <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd. Hieronder vindt u de details. De afspraak zit ook als bijlage (<strong>oudergesprek.ics</strong>) bij deze e-mail — open deze om de afspraak aan uw agenda toe te voegen.</p>
+      ${card}
       <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
       <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
       <p style="color:#374151;line-height:1.6">Sayın veli,</p>
-      <p style="color:#374151;line-height:1.6"><strong>${studentName}</strong> için görüşme saati <strong>${session.date}</strong> tarihinde <strong>${slot.start}</strong> - <strong>${slot.end}</strong> olarak onaylanmıştır.</p>
-      <p style="color:#374151;line-height:1.6">Randevu, bu e-postaya ek olarak (<strong>oudergesprek.ics</strong>) eklenmiştir — takviminize eklemek için açın.</p>
+      <p style="color:#374151;line-height:1.6"><strong>${studentName}</strong> için görüşme saati onaylanmıştır. Detaylar yukarıdaki kartta yer almaktadır. Randevu ayrıca ek olarak (<strong>oudergesprek.ics</strong>) eklenmiştir — takviminize eklemek için açın.</p>
     `),
     [{ filename: 'oudergesprek.ics', content: icsContent, contentType: 'text/calendar' }],
   );
