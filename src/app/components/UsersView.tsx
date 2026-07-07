@@ -286,8 +286,7 @@ export default function UsersView({
               ) : (
                 filteredUsers.map((u) => {
                   const isSelf = u.id === currentUserId;
-                  const isPrivilegedRow = u.role === 'admin' || u.role === 'superadmin';
-                  const canChangeRole = !isSelf && (isRealSuperadmin || !isPrivilegedRow);
+                  const canChangeRole = !isSelf && isRealSuperadmin;
                   const roleOptions = isRealSuperadmin
                     ? ROLE_ORDER
                     : ROLE_ORDER.filter((r) => r === 'parent' || r === 'teacher');

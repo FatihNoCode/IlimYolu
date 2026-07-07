@@ -1650,6 +1650,14 @@ app.put("/make-server-6679cacd/users/:userId", async (c) => {
     }
 
     const isRealSuperadmin = userData.role === 'superadmin';
+
+    // Only superadmins may change a user's role. Regular admins can still edit
+    // name/phone and assign teachers to classes / children to parents via the
+    // dedicated endpoints — just not reassign roles here.
+    if (role && role !== target.role && !isRealSuperadmin) {
+      return c.json({ error: 'Only superadmins can change roles' }, 403);
+    }
+
     const touchesPrivilegedTier = target.role === 'admin' || target.role === 'superadmin' || role === 'admin' || role === 'superadmin';
     if (touchesPrivilegedTier && !isRealSuperadmin) {
       return c.json({ error: 'Only superadmins can manage admin or superadmin accounts' }, 403);
