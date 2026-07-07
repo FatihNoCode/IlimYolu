@@ -162,41 +162,73 @@ async function verifyResendWebhook(request: Request, rawBody: string): Promise<b
 }
 
 // Builds the raw .ics content for a single conference slot.
-function buildIcsContent(dateStr: string, startTime: string, endTime: string, title: string, description: string) {
+function buildIcsContent(dateStr: string, startTime: string, endTime: string, title: string, description: string, attendeeEmail?: string) {
   const toIcsDate = (time: string) => `${dateStr.replace(/-/g, '')}T${time.replace(':', '')}00`;
   const dtStart = toIcsDate(startTime);
   const dtEnd = toIcsDate(endTime);
-  return [
+  // Deterministic UID (per slot + attendee) so opening the link twice, or a
+  // reschedule re-send, updates the same calendar entry instead of creating
+  // duplicates.
+  const uid = `oudergesprek-${dateStr}-${startTime}-${endTime}-${attendeeEmail || 'ouder'}`
+    .replace(/[^a-zA-Z0-9-]/g, '');
+  const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Ilim Yolu//Oudergesprek//NL',
+    'CALSCALE:GREGORIAN',
+    // METHOD:REQUEST turns the event into an invitation, so Apple Calendar /
+    // Outlook show an "Accept / Maybe / Decline" prompt instead of a plain
+    // "add to calendar".
+    'METHOD:REQUEST',
     'BEGIN:VEVENT',
-    `UID:${crypto.randomUUID()}@ilimyolu.com`,
+    `UID:${uid}@ilimyolu.com`,
     `DTSTAMP:${dtStart}`,
     `DTSTART:${dtStart}`,
     `DTEND:${dtEnd}`,
     `SUMMARY:${title}`,
     `DESCRIPTION:${description}`,
+    'ORGANIZER;CN=Ilim Yolu:mailto:info@ilimyolu.com',
+  ];
+  if (attendeeEmail) {
+    lines.push(
+      `ATTENDEE;CN=${attendeeEmail};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${attendeeEmail}`,
+    );
+  }
+  lines.push(
+    'STATUS:CONFIRMED',
+    'SEQUENCE:0',
     'END:VEVENT',
     'END:VCALENDAR',
-  ].join('\r\n');
+  );
+  return lines.join('\r\n');
 }
 
 // Builds a hosted .ics download link (many mail clients strip `data:` URIs
 // from links, which made the Apple/Outlook button silently non-functional)
 // plus a Google Calendar link for a single conference slot.
-function buildCalendarLinks(dateStr: string, startTime: string, endTime: string, title: string, description: string) {
+function buildCalendarLinks(dateStr: string, startTime: string, endTime: string, title: string, description: string, attendeeEmail?: string) {
   const toIcsDate = (time: string) => `${dateStr.replace(/-/g, '')}T${time.replace(':', '')}00`;
   const dtStart = toIcsDate(startTime);
   const dtEnd = toIcsDate(endTime);
 
   const icsParams = new URLSearchParams({ date: dateStr, start: startTime, end: endTime, title, description });
-  const icsLink = `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-6679cacd/ics?${icsParams.toString()}`;
+  if (attendeeEmail) icsParams.set('email', attendeeEmail);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+  const icsPath = `/functions/v1/make-server-6679cacd/ics?${icsParams.toString()}`;
+
+  // https link (still used as a fallback / for clients that don't support
+  // webcal). Opening this in a browser just downloads the file.
+  const icsLink = `${supabaseUrl}${icsPath}`;
+
+  // webcal:// makes the OS hand the URL straight to the default calendar app
+  // (Apple Calendar, Outlook) instead of opening the Supabase URL in a
+  // browser — so the parent lands in their agenda and can accept the invite.
+  const appleLink = `webcal://${supabaseUrl.replace(/^https?:\/\//, '')}${icsPath}`;
 
   const googleDates = `${dtStart}/${dtEnd}`;
   const googleLink = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${googleDates}&details=${encodeURIComponent(description)}`;
 
-  return { icsLink, googleLink };
+  return { icsLink, appleLink, googleLink };
 }
 
 // Public endpoint the "Toevoegen aan Apple/Outlook Agenda" email button
@@ -204,12 +236,12 @@ function buildCalendarLinks(dateStr: string, startTime: string, endTime: string,
 // `data:` URIs (which silently broke the old version of this button) can
 // still open/download it.
 app.get("/make-server-6679cacd/ics", (c) => {
-  const { date, start, end, title, description } = c.req.query();
+  const { date, start, end, title, description, email } = c.req.query();
   if (!date || !start || !end || !title) {
     return c.json({ error: 'Missing required fields' }, 400);
   }
   const sanitize = (s: string) => s.replace(/[\r\n]+/g, ' ');
-  const ics = buildIcsContent(date, start, end, sanitize(title), sanitize(description || ''));
+  const ics = buildIcsContent(date, start, end, sanitize(title), sanitize(description || ''), email ? sanitize(email) : undefined);
   return c.body(ics, 200, {
     'Content-Type': 'text/calendar; charset=utf-8',
     'Content-Disposition': 'attachment; filename="oudergesprek.ics"',
@@ -221,7 +253,7 @@ app.get("/make-server-6679cacd/ics", (c) => {
 async function sendConferenceConfirmationEmail(to: string, session: any, slot: any, studentName: string) {
   const title = `Oudergesprek ${studentName} | Veli Görüşmesi`;
   const description = `Oudergesprek voor ${studentName} bij Ilim Yolu.`;
-  const { icsLink, googleLink } = buildCalendarLinks(session.date, slot.start, slot.end, title, description);
+  const { appleLink, googleLink } = buildCalendarLinks(session.date, slot.start, slot.end, title, description, to);
 
   return sendEmail(
     to,
@@ -237,7 +269,7 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
         </tr>
         <tr>
           <td>
-            <a href="${icsLink}" style="display:block;background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Apple/Outlook Agenda</a>
+            <a href="${appleLink}" style="display:block;background:#111827;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;text-align:center">Toevoegen aan Apple/Outlook Agenda</a>
           </td>
         </tr>
       </table>
