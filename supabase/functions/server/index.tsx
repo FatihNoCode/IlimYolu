@@ -3062,6 +3062,13 @@ app.get("/make-server-6679cacd/diploma/student/:studentId", async (c) => {
     const config = await kv.get(`diploma_config:${student.classId}`);
     const record = await kv.get(`diploma:${studentId}`);
 
+    // Grades are kept per period (period1 = mid-year, period2 = end-of-year).
+    // Older records stored a single flat map — migrate those into period1.
+    const rawGrades = record?.grades || {};
+    const grades = (rawGrades.period1 || rawGrades.period2)
+      ? { period1: rawGrades.period1 || {}, period2: rawGrades.period2 || {} }
+      : { period1: rawGrades, period2: {} };
+
     return c.json({
       student: { id: studentId, name: student.name },
       className: cls?.name || '',
@@ -3069,7 +3076,7 @@ app.get("/make-server-6679cacd/diploma/student/:studentId", async (c) => {
       stats: { totalLessons, lateCount, absencesWithNotice, absencesWithoutNotice, homeworkGiven, homeworkFinished },
       lessons,
       modules: config?.modules || [],
-      grades: record?.grades || {},
+      grades,
       note: record?.note || '',
       teacherName: userData?.name || '',
       signature: userData?.signature || null,
@@ -3095,13 +3102,20 @@ app.put("/make-server-6679cacd/diploma/student/:studentId", async (c) => {
     }
 
     const { grades, note } = await c.req.json();
-    const cleanGrades: Record<string, number> = {};
-    if (grades && typeof grades === 'object') {
-      for (const key of DIPLOMA_MODULES) {
-        const v = grades[key];
-        if (typeof v === 'number' && isFinite(v)) cleanGrades[key] = v;
+    const cleanPeriod = (obj: any): Record<string, number> => {
+      const out: Record<string, number> = {};
+      if (obj && typeof obj === 'object') {
+        for (const key of DIPLOMA_MODULES) {
+          const v = obj[key];
+          if (typeof v === 'number' && isFinite(v)) out[key] = v;
+        }
       }
-    }
+      return out;
+    };
+    const cleanGrades = {
+      period1: cleanPeriod(grades?.period1),
+      period2: cleanPeriod(grades?.period2),
+    };
 
     await kv.set(`diploma:${studentId}`, {
       studentId,

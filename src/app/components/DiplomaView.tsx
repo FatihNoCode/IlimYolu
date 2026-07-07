@@ -22,7 +22,9 @@ interface DiplomaViewProps {
 }
 
 type ModuleType = 'grade' | 'star';
+type Period = 'period1' | 'period2';
 interface ModuleConfig { key: string; type: ModuleType; }
+interface PeriodGrades { period1: Record<string, number>; period2: Record<string, number>; }
 
 // The fixed set of subject modules a teacher can grade, with bilingual labels.
 const MODULES: { key: string; nl: string; tr: string }[] = [
@@ -56,6 +58,10 @@ const T = {
     saveConfig: 'Onderdelen opslaan',
     configSaved: 'Onderdelen opgeslagen!',
     overview: 'Overzicht',
+    period1: 'Periode 1',
+    period2: 'Periode 2',
+    periodHint: 'Een jaar bestaat uit 2 periodes. Vul periode 1 halverwege het jaar in en periode 2 aan het einde.',
+    module: 'Onderdeel',
     lessonsTotal: 'Gegeven lessen',
     absentWith: 'Afwezig (gemeld)',
     absentWithout: 'Afwezig (niet gemeld)',
@@ -92,6 +98,10 @@ const T = {
     saveConfig: 'Bölümleri kaydet',
     configSaved: 'Bölümler kaydedildi!',
     overview: 'Genel Bakış',
+    period1: '1. Dönem',
+    period2: '2. Dönem',
+    periodHint: 'Bir yıl 2 dönemden oluşur. 1. dönemi yıl ortasında, 2. dönemi yıl sonunda doldurun.',
+    module: 'Bölüm',
     lessonsTotal: 'İşlenen dersler',
     absentWith: 'Devamsız (bildirildi)',
     absentWithout: 'Devamsız (bildirilmedi)',
@@ -130,7 +140,8 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
   const [savingConfig, setSavingConfig] = useState(false);
 
   const [data, setData] = useState<any>(null);
-  const [grades, setGrades] = useState<Record<string, number>>({});
+  const [grades, setGrades] = useState<PeriodGrades>({ period1: {}, period2: {} });
+  const [activePeriod, setActivePeriod] = useState<Period>('period1');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -173,7 +184,10 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     try {
       const res = await apiRequest(`/diploma/student/${selectedStudent}`);
       setData(res);
-      setGrades(res.grades || {});
+      setGrades({
+        period1: res.grades?.period1 || {},
+        period2: res.grades?.period2 || {},
+      });
       setNote(res.note || '');
       setModuleConfig(res.modules || []);
     } catch (err: any) {
@@ -243,25 +257,35 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     // `cover` so the wide tile fills the A4 page without distortion or seams.
     const bgUrl = `${window.location.origin}/diploma-bg.svg`;
 
+    // Single brand green used everywhere on the diploma.
+    const GREEN = '#009872';
+
+    const fmt = (type: ModuleType, val: number | undefined): string => {
+      if (typeof val !== 'number') return '—';
+      if (type === 'star') {
+        const full = Math.max(0, Math.min(5, Math.round(val)));
+        return '★★★★★☆☆☆☆☆'.slice(5 - full, 10 - full);
+      }
+      return String(val);
+    };
+
     const gradeRows = moduleConfig
       .map((m) => {
         const label = moduleLabel(m.key, language);
-        const val = grades[m.key];
-        let display = '—';
-        if (typeof val === 'number') {
-          if (m.type === 'star') {
-            const full = Math.max(0, Math.min(5, Math.round(val)));
-            display = '★★★★★☆☆☆☆☆'.slice(5 - full, 10 - full);
-          } else {
-            display = String(val);
-          }
-        }
-        return `<tr><td class="mod">${label}</td><td class="val">${display}</td></tr>`;
+        return `<tr><td class="mod">${label}</td><td class="val">${fmt(m.type, grades.period1[m.key])}</td><td class="val">${fmt(m.type, grades.period2[m.key])}</td></tr>`;
       })
       .join('');
 
-    const statItem = (label: string, value: number) =>
-      `<div class="stat"><span class="num">${value}</span><span class="lbl">${label}</span></div>`;
+    const statsLine = [
+      [text.lessonsTotal, stats.totalLessons || 0],
+      [text.late, stats.lateCount || 0],
+      [text.absentWith, stats.absencesWithNotice || 0],
+      [text.absentWithout, stats.absencesWithoutNotice || 0],
+      [text.hwGiven, stats.homeworkGiven || 0],
+      [text.hwFinished, stats.homeworkFinished || 0],
+    ]
+      .map(([label, value]) => `<span class="stat"><b>${value}</b> ${label}</span>`)
+      .join('<span class="dot">•</span>');
 
     const html = `<!DOCTYPE html><html lang="${language}"><head><meta charset="utf-8"><title>${text.diploma} - ${data.student.name}</title>
 <style>
@@ -272,36 +296,36 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
           background-color: #ffffff;
           background-image: url('${bgUrl}');
           background-size: cover; background-repeat: no-repeat; background-position: center; }
-  .frame { height: 100%; border: 3px solid #047857; border-radius: 10px; padding: 10mm 14mm; position: relative;
+  .frame { height: 100%; border: 3px solid ${GREEN}; border-radius: 10px; padding: 10mm 16mm; position: relative;
            background: rgba(255,255,255,0.55); display: flex; flex-direction: column; }
-  .frame::before { content:''; position:absolute; inset:5px; border:1px solid #a7f3d0; border-radius:6px; pointer-events:none; }
   .head { text-align:center; }
-  .brand { color:#047857; letter-spacing:3px; font-size:14px; text-transform:uppercase; font-weight:bold; }
-  .title { font-size:44px; color:#065f46; margin:2px 0 4px; letter-spacing:2px; }
-  .rule { width:120px; height:3px; background:#047857; margin:6px auto 0; border-radius:2px; }
+  .brand { color:${GREEN}; letter-spacing:3px; font-size:14px; text-transform:uppercase; font-weight:bold; }
+  .title { font-size:44px; color:${GREEN}; margin:2px 0 4px; letter-spacing:2px; }
+  .rule { width:120px; height:3px; background:${GREEN}; margin:6px auto 0; border-radius:2px; }
   .sub { text-align:center; margin-top:10px; font-size:15px; color:#374151; }
   .name { text-align:center; font-size:34px; color:#111827; margin:6px 0; font-weight:bold; }
   .meta { text-align:center; color:#6b7280; font-size:13px; margin-bottom:8px; }
-  .body { display:flex; gap:14mm; flex:1; margin-top:6px; }
-  .col { flex:1; }
-  h3 { color:#047857; font-size:15px; border-bottom:1px solid #d1fae5; padding-bottom:4px; margin:0 0 8px; letter-spacing:1px; }
-  table { width:100%; border-collapse:collapse; }
-  td { padding:5px 6px; font-size:14px; border-bottom:1px dotted #d1d5db; }
-  td.mod { color:#374151; }
-  td.val { text-align:right; font-weight:bold; color:#065f46; font-size:16px; letter-spacing:2px; }
-  .stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .stat { background:#ecfdf5; border:1px solid #d1fae5; border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; }
-  .stat .num { font-size:22px; font-weight:bold; color:#065f46; }
-  .stat .lbl { font-size:11px; color:#4b5563; }
-  .note { margin-top:10px; font-size:13px; color:#374151; font-style:italic; }
-  .foot { display:flex; justify-content:space-between; align-items:flex-end; margin-top:6px; }
+  .body { flex:1; display:flex; flex-direction:column; margin-top:10px; }
+  table.grades { width:100%; max-width:180mm; margin:0 auto; border-collapse:collapse; }
+  table.grades th { color:${GREEN}; font-size:13px; letter-spacing:1px; text-transform:uppercase;
+                    padding:6px 8px; border-bottom:2px solid ${GREEN}; }
+  table.grades th.mh { text-align:left; }
+  table.grades th.ph, table.grades td.val { text-align:center; width:26%; }
+  table.grades td { padding:7px 8px; font-size:15px; border-bottom:1px dotted #cbd5d1; }
+  table.grades td.mod { color:#374151; }
+  table.grades td.val { font-weight:bold; color:${GREEN}; font-size:17px; letter-spacing:2px; }
+  .note { text-align:center; margin-top:14px; font-size:13px; color:#374151; font-style:italic; }
+  .statsline { text-align:center; margin-top:auto; padding-top:10px; font-size:12px; color:#4b5563; }
+  .statsline .stat b { color:${GREEN}; font-size:14px; }
+  .statsline .dot { margin:0 8px; color:#9ca3af; }
+  .foot { display:flex; justify-content:space-between; align-items:flex-end; margin-top:12px; }
   .sig { text-align:center; }
   .sig img { max-height:60px; max-width:200px; object-fit:contain; display:block; margin:0 auto 2px; }
   .sig .line { width:200px; border-top:1px solid #9ca3af; margin:0 auto 3px; }
   .sig .cap { font-size:12px; color:#6b7280; }
   .date { font-size:12px; color:#6b7280; }
   .noprint { text-align:center; padding:14px; }
-  .noprint button { background:#047857; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .noprint button { background:${GREEN}; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-size:14px; cursor:pointer; }
   @media print { .noprint { display:none; } }
 </style></head>
 <body>
@@ -316,22 +340,12 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     <div class="name">${escapeHtml(data.student.name)}</div>
     <div class="meta">${text.klas}: ${escapeHtml(data.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(data.schoolYear || '')}</div>
     <div class="body">
-      <div class="col">
-        <h3>${text.grades}</h3>
-        <table>${gradeRows || `<tr><td class="mod">—</td><td class="val"></td></tr>`}</table>
-        ${note ? `<div class="note">“${escapeHtml(note)}”</div>` : ''}
-      </div>
-      <div class="col">
-        <h3>${text.overview}</h3>
-        <div class="stats">
-          ${statItem(text.lessonsTotal, stats.totalLessons || 0)}
-          ${statItem(text.late, stats.lateCount || 0)}
-          ${statItem(text.absentWith, stats.absencesWithNotice || 0)}
-          ${statItem(text.absentWithout, stats.absencesWithoutNotice || 0)}
-          ${statItem(text.hwGiven, stats.homeworkGiven || 0)}
-          ${statItem(text.hwFinished, stats.homeworkFinished || 0)}
-        </div>
-      </div>
+      <table class="grades">
+        <thead><tr><th class="mh">${text.module}</th><th class="ph">${text.period1}</th><th class="ph">${text.period2}</th></tr></thead>
+        <tbody>${gradeRows || `<tr><td class="mod">—</td><td class="val"></td><td class="val"></td></tr>`}</tbody>
+      </table>
+      ${note ? `<div class="note">“${escapeHtml(note)}”</div>` : ''}
+      <div class="statsline">${statsLine}</div>
     </div>
     <div class="foot">
       <div class="date">${text.date}: ${dateStr}</div>
@@ -454,42 +468,62 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
 
           {/* Grades entry */}
           <div>
-            <h4 className="text-sm font-semibold text-emerald-800 mb-2">{text.grades}</h4>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <h4 className="text-sm font-semibold text-emerald-800">{text.grades}</h4>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 self-start">
+                {(['period1', 'period2'] as Period[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setActivePeriod(p)}
+                    className={`px-3 py-1 rounded-md text-xs font-semibold transition ${activePeriod === p ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-800'}`}
+                  >
+                    {text[p]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">{text.periodHint}</p>
             {moduleConfig.length === 0 ? (
               <p className="text-xs text-gray-400">{text.noModules}</p>
             ) : (
               <div className="space-y-2">
-                {moduleConfig.map((m) => (
-                  <div key={m.key} className="flex items-center justify-between gap-3 p-2.5 bg-gray-50 rounded-lg">
-                    <span className="text-sm text-gray-700 flex-1">{moduleLabel(m.key, language)}</span>
-                    {m.type === 'star' ? (
-                      <div className="flex gap-0.5">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <button key={n} onClick={() => setGrades({ ...grades, [m.key]: n })} title={`${n}`}>
-                            <Star className={`h-6 w-6 ${(grades[m.key] || 0) >= n ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        step={0.5}
-                        value={grades[m.key] ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          const next = { ...grades };
-                          if (v === '') delete next[m.key];
-                          else next[m.key] = parseFloat(v);
-                          setGrades(next);
-                        }}
-                        placeholder="—"
-                        className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    )}
-                  </div>
-                ))}
+                {moduleConfig.map((m) => {
+                  const periodGrades = grades[activePeriod];
+                  const setValue = (val: number | null) => {
+                    const next = { ...periodGrades };
+                    if (val === null) delete next[m.key];
+                    else next[m.key] = val;
+                    setGrades({ ...grades, [activePeriod]: next });
+                  };
+                  return (
+                    <div key={m.key} className="flex items-center justify-between gap-3 p-2.5 bg-gray-50 rounded-lg">
+                      <span className="text-sm text-gray-700 flex-1">{moduleLabel(m.key, language)}</span>
+                      {m.type === 'star' ? (
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <button key={n} onClick={() => setValue(n)} title={`${n}`}>
+                              <Star className={`h-6 w-6 ${(periodGrades[m.key] || 0) >= n ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={0.5}
+                          value={periodGrades[m.key] ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setValue(v === '' ? null : parseFloat(v));
+                          }}
+                          placeholder="—"
+                          className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
