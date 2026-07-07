@@ -2879,10 +2879,13 @@ app.put("/make-server-6679cacd/school-year/notification-deadline", async (c) => 
 // bilingual labels live on the frontend.
 const DIPLOMA_MODULES = ['koran', 'tajweed', 'arabisch', 'hadith', 'ahlak', 'adab', 'aqiedah', 'fiqh', 'salah', 'seerah'];
 
-// Reads the diploma visibility flag for a school (defaults to hidden).
-async function isDiplomaVisible(schoolId: string): Promise<boolean> {
+// Reads the diploma settings for a school (defaults to hidden / period 1 only).
+async function getDiplomaSettings(schoolId: string): Promise<{ visible: boolean; period2Started: boolean }> {
   const settings = await kv.get(`diploma_settings:${schoolId}`);
-  return !!settings?.visible;
+  return { visible: !!settings?.visible, period2Started: !!settings?.period2Started };
+}
+async function isDiplomaVisible(schoolId: string): Promise<boolean> {
+  return (await getDiplomaSettings(schoolId)).visible;
 }
 
 // Whether the diploma tab should show for the current user. Admin/superadmin
@@ -2897,15 +2900,20 @@ app.get("/make-server-6679cacd/diploma/settings", async (c) => {
     if (userData?.role === 'admin' || userData?.role === 'superadmin') {
       const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
       if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
-      return c.json({ visible: await isDiplomaVisible(schoolId!) });
+      return c.json(await getDiplomaSettings(schoolId!));
     }
 
-    // Teacher / parent: visible if enabled in any of their schools.
+    // Teacher / parent: visible if enabled in any of their schools; period 2 is
+    // considered started if any of their schools has flipped it on.
     const schoolIds = await getUserSchoolIds(user.id, userData);
+    let visible = false;
+    let period2Started = false;
     for (const sid of schoolIds) {
-      if (await isDiplomaVisible(sid)) return c.json({ visible: true });
+      const s = await getDiplomaSettings(sid);
+      if (s.visible) visible = true;
+      if (s.period2Started) period2Started = true;
     }
-    return c.json({ visible: false });
+    return c.json({ visible, period2Started });
   } catch (err) {
     console.log('Get diploma settings error:', err);
     return c.json({ error: 'Failed to get diploma settings' }, 500);
@@ -2926,9 +2934,17 @@ app.put("/make-server-6679cacd/diploma/settings", async (c) => {
     const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
     if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
 
-    const { visible } = await c.req.json();
-    await kv.set(`diploma_settings:${schoolId}`, { visible: !!visible, updatedBy: user.id, updatedAt: new Date().toISOString() });
-    return c.json({ visible: !!visible });
+    // Partial update: only the provided toggles change, the rest is preserved.
+    const body = await c.req.json();
+    const current = await getDiplomaSettings(schoolId!);
+    const next = {
+      visible: body.visible !== undefined ? !!body.visible : current.visible,
+      period2Started: body.period2Started !== undefined ? !!body.period2Started : current.period2Started,
+      updatedBy: user.id,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`diploma_settings:${schoolId}`, next);
+    return c.json({ visible: next.visible, period2Started: next.period2Started });
   } catch (err) {
     console.log('Update diploma settings error:', err);
     return c.json({ error: 'Failed to update diploma settings' }, 500);

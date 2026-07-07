@@ -62,6 +62,7 @@ const T = {
     period2: 'Periode 2',
     periodHint: 'Een jaar bestaat uit 2 periodes. Vul periode 1 halverwege het jaar in en periode 2 aan het einde.',
     module: 'Onderdeel',
+    resultCol: 'Beoordeling',
     lessonsTotal: 'Gegeven lessen',
     absentWith: 'Afwezig (gemeld)',
     absentWithout: 'Afwezig (niet gemeld)',
@@ -109,6 +110,7 @@ const T = {
     period2: '2. Dönem',
     periodHint: 'Bir yıl 2 dönemden oluşur. 1. dönemi yıl ortasında, 2. dönemi yıl sonunda doldurun.',
     module: 'Bölüm',
+    resultCol: 'Değerlendirme',
     lessonsTotal: 'İşlenen dersler',
     absentWith: 'Devamsız (bildirildi)',
     absentWithout: 'Devamsız (bildirilmedi)',
@@ -158,6 +160,7 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
   const [activePeriod, setActivePeriod] = useState<Period>('period1');
   const [note, setNote] = useState('');
   const [excluded, setExcluded] = useState(false);
+  const [period2Started, setPeriod2Started] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -170,6 +173,18 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     const next = (base + delta + students.length) % students.length;
     setSelectedStudent(students[next].id);
   };
+
+  useEffect(() => {
+    // Whether the superadmin has flagged period 2 as started; controls the
+    // period toggle visibility and the diploma layout.
+    apiRequest('/diploma/settings')
+      .then((d) => {
+        const p2 = !!d.period2Started;
+        setPeriod2Started(p2);
+        if (!p2) setActivePeriod('period1');
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -295,9 +310,20 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
       }
       return String(val);
     };
+    // Two-period diploma keeps the Periode 1 / Periode 2 columns; a first-only
+    // diploma shows a single centered result column.
+    const twoPeriods = period2Started;
+    const thead = twoPeriods
+      ? `<tr><th class="mh">${text.module}</th><th class="ph">${text.period1}</th><th class="ph">${text.period2}</th></tr>`
+      : `<tr><th class="mh">${text.module}</th><th class="ph">${text.resultCol}</th></tr>`;
+    const emptyRow = twoPeriods
+      ? `<tr><td class="mod">—</td><td class="val"></td><td class="val"></td></tr>`
+      : `<tr><td class="mod">—</td><td class="val"></td></tr>`;
     const gradeRows = (d.modules || [])
       .map((m: ModuleConfig) =>
-        `<tr><td class="mod">${moduleLabel(m.key, language)}</td><td class="val">${fmt(m.type, g.period1[m.key])}</td><td class="val">${fmt(m.type, g.period2[m.key])}</td></tr>`
+        twoPeriods
+          ? `<tr><td class="mod">${moduleLabel(m.key, language)}</td><td class="val">${fmt(m.type, g.period1[m.key])}</td><td class="val">${fmt(m.type, g.period2[m.key])}</td></tr>`
+          : `<tr><td class="mod">${moduleLabel(m.key, language)}</td><td class="val">${fmt(m.type, g.period1[m.key])}</td></tr>`
       )
       .join('');
     const statsLine = [
@@ -321,11 +347,13 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     <div class="name">${escapeHtml(d.student.name)}</div>
     <div class="meta">${text.klas}: ${escapeHtml(d.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(d.schoolYear || '')}</div>
     <div class="body">
-      <table class="grades">
-        <thead><tr><th class="mh">${text.module}</th><th class="ph">${text.period1}</th><th class="ph">${text.period2}</th></tr></thead>
-        <tbody>${gradeRows || `<tr><td class="mod">—</td><td class="val"></td><td class="val"></td></tr>`}</tbody>
-      </table>
-      ${d.note ? `<div class="note">“${escapeHtml(d.note)}”</div>` : ''}
+      <div class="gradeswrap${twoPeriods ? '' : ' center'}">
+        <table class="grades${twoPeriods ? '' : ' single'}">
+          <thead>${thead}</thead>
+          <tbody>${gradeRows || emptyRow}</tbody>
+        </table>
+        ${d.note ? `<div class="note">“${escapeHtml(d.note)}”</div>` : ''}
+      </div>
       <div class="statsline">${statsLine}</div>
     </div>
     <div class="foot">
@@ -363,16 +391,20 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
   .name { text-align:center; font-size:34px; color:#111827; margin:6px 0; font-weight:bold; }
   .meta { text-align:center; color:#6b7280; font-size:13px; margin-bottom:8px; }
   .body { flex:1; display:flex; flex-direction:column; margin-top:10px; }
+  .gradeswrap { flex:1; display:flex; flex-direction:column; }
+  .gradeswrap.center { justify-content:center; }
   table.grades { width:100%; max-width:180mm; margin:0 auto; border-collapse:collapse; }
+  table.grades.single { max-width:120mm; }
   table.grades th { color:${GREEN}; font-size:13px; letter-spacing:1px; text-transform:uppercase;
                     padding:6px 8px; border-bottom:2px solid ${GREEN}; }
   table.grades th.mh { text-align:left; }
   table.grades th.ph, table.grades td.val { text-align:center; width:26%; }
+  table.grades.single th.ph, table.grades.single td.val { width:38%; }
   table.grades td { padding:7px 8px; font-size:15px; border-bottom:1px dotted #cbd5d1; }
   table.grades td.mod { color:#374151; }
   table.grades td.val { font-weight:bold; color:${GREEN}; font-size:17px; letter-spacing:2px; }
   .note { text-align:center; margin-top:14px; font-size:13px; color:#374151; font-style:italic; }
-  .statsline { text-align:center; margin-top:auto; padding-top:10px; font-size:12px; color:#4b5563; }
+  .statsline { text-align:center; padding-top:10px; font-size:12px; color:#4b5563; }
   .statsline .stat b { color:${GREEN}; font-size:14px; }
   .statsline .dot { margin:0 8px; color:#9ca3af; }
   .foot { display:flex; justify-content:space-between; align-items:flex-end; margin-top:12px; }
@@ -601,19 +633,21 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
               <h4 className="text-sm font-semibold text-emerald-800">{text.grades}</h4>
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 self-start">
-                {(['period1', 'period2'] as Period[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setActivePeriod(p)}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition ${activePeriod === p ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-800'}`}
-                  >
-                    {text[p]}
-                  </button>
-                ))}
-              </div>
+              {period2Started && (
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1 self-start">
+                  {(['period1', 'period2'] as Period[]).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setActivePeriod(p)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition ${activePeriod === p ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-800'}`}
+                    >
+                      {text[p]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <p className="text-xs text-gray-500 mb-3">{text.periodHint}</p>
+            {period2Started && <p className="text-xs text-gray-500 mb-3">{text.periodHint}</p>}
             {moduleConfig.length === 0 ? (
               <p className="text-xs text-gray-400">{text.noModules}</p>
             ) : (

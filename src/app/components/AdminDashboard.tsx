@@ -85,6 +85,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
 
   // Diploma feature visibility (per school)
   const [diplomaVisible, setDiplomaVisible] = useState(false);
+  const [period2Started, setPeriod2Started] = useState(false);
   const [savingDiploma, setSavingDiploma] = useState(false);
 
   // Class management
@@ -113,20 +114,21 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
     try {
       const data = await apiRequest('/diploma/settings');
       setDiplomaVisible(!!data.visible);
+      setPeriod2Started(!!data.period2Started);
     } catch (error) {
       console.error('Error loading diploma settings:', error);
     }
   };
 
-  const toggleDiplomaVisible = async () => {
-    const next = !diplomaVisible;
+  const updateDiplomaSetting = async (patch: { visible?: boolean; period2Started?: boolean }) => {
     setSavingDiploma(true);
     try {
-      await apiRequest('/diploma/settings', {
+      const res = await apiRequest('/diploma/settings', {
         method: 'PUT',
-        body: JSON.stringify({ visible: next }),
+        body: JSON.stringify(patch),
       });
-      setDiplomaVisible(next);
+      setDiplomaVisible(!!res.visible);
+      setPeriod2Started(!!res.period2Started);
       notify.success(language === 'tr' ? 'Kaydedildi!' : 'Opgeslagen!');
     } catch (error: any) {
       notify.error(error.message || 'Error');
@@ -436,12 +438,33 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
                     {language === 'tr' ? 'Öğretmenler için diploma sekmesi' : 'Diploma-tabblad voor leerkrachten'}
                   </span>
                   <button
-                    onClick={toggleDiplomaVisible}
+                    onClick={() => updateDiplomaSetting({ visible: !diplomaVisible })}
                     disabled={savingDiploma}
                     className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${diplomaVisible ? 'bg-emerald-600' : 'bg-gray-300'}`}
                     aria-pressed={diplomaVisible}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${diplomaVisible ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between bg-emerald-50 p-4 rounded-lg mt-3">
+                  <div className="pr-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      {language === 'tr' ? '2. dönem başladı' : 'Tweede periode gestart'}
+                    </span>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {language === 'tr'
+                        ? 'Kapalıyken öğretmenler yalnızca 1. dönem notlarını girer ve diploma ortalanır. Açıkken her iki dönem de gösterilir.'
+                        : 'Uit: leerkrachten vullen alleen periode 1 in en het diploma wordt gecentreerd. Aan: beide periodes worden getoond.'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => updateDiplomaSetting({ period2Started: !period2Started })}
+                    disabled={savingDiploma}
+                    className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 shrink-0 ${period2Started ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                    aria-pressed={period2Started}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${period2Started ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
                 </div>
               </div>
