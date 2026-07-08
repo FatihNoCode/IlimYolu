@@ -72,7 +72,6 @@ const T = {
     overview: 'Overzicht',
     period1: 'Periode 1',
     period2: 'Periode 2',
-    onlyPeriod1: 'Alleen periode 1',
     periodHint: 'Een jaar bestaat uit 2 periodes. Vul periode 1 halverwege het jaar in en periode 2 aan het einde.',
     module: 'Onderdeel',
     resultCol: 'Beoordeling',
@@ -125,7 +124,6 @@ const T = {
     overview: 'Genel Bakış',
     period1: '1. Dönem',
     period2: '2. Dönem',
-    onlyPeriod1: 'Sadece 1. dönem',
     periodHint: 'Bir yıl 2 dönemden oluşur. 1. dönemi yıl ortasında, 2. dönemi yıl sonunda doldurun.',
     module: 'Bölüm',
     resultCol: 'Değerlendirme',
@@ -368,7 +366,7 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     </div>
     <div class="sub">${text.forStudent}</div>
     <div class="name">${escapeHtml(d.student.name)}</div>
-    <div class="meta">${text.klas}: ${escapeHtml(d.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(d.schoolYear || '')}${twoPeriods ? '' : ` &nbsp;•&nbsp; ${text.onlyPeriod1}`}</div>
+    <div class="meta">${text.klas}: ${escapeHtml(d.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(d.schoolYear || '')}</div>
     <div class="body">
       <div class="gradeswrap${twoPeriods ? '' : ' center'}">
         <table class="grades${twoPeriods ? '' : ' single'}">
