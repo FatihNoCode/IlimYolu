@@ -203,12 +203,9 @@ export default function App() {
     }
   };
 
-  // Superadmins are guided through the admin tour (they operate schools the
-  // same way an admin does). Parents/teachers/admins get their own tour.
-  const tourRole =
-    user?.role === 'superadmin' ? 'admin' :
-    user?.role === 'parent' || user?.role === 'teacher' || user?.role === 'admin' ? user.role :
-    null;
+  // The first-visit product tour walks parents through enrolling a child, so it
+  // is shown to parents only.
+  const tourRole = user?.role === 'parent' ? 'parent' : null;
 
   // Show the role-specific product tour on the user's first visit.
   useEffect(() => {
