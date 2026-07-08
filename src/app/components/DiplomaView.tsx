@@ -72,6 +72,7 @@ const T = {
     overview: 'Overzicht',
     period1: 'Periode 1',
     period2: 'Periode 2',
+    onlyPeriod1: 'Alleen periode 1',
     periodHint: 'Een jaar bestaat uit 2 periodes. Vul periode 1 halverwege het jaar in en periode 2 aan het einde.',
     module: 'Onderdeel',
     resultCol: 'Beoordeling',
@@ -124,6 +125,7 @@ const T = {
     overview: 'Genel Bakış',
     period1: '1. Dönem',
     period2: '2. Dönem',
+    onlyPeriod1: 'Sadece 1. dönem',
     periodHint: 'Bir yıl 2 dönemden oluşur. 1. dönemi yıl ortasında, 2. dönemi yıl sonunda doldurun.',
     module: 'Bölüm',
     resultCol: 'Değerlendirme',
@@ -331,9 +333,12 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     // Two-period diploma keeps the Periode 1 / Periode 2 columns; a first-only
     // diploma shows a single centered result column.
     const twoPeriods = period2Started;
+    // In a first-period-only diploma the single grade column is explicitly
+    // labelled "Periode 1" so the reader knows these results cover only the
+    // first period (a two-period diploma already names both columns).
     const thead = twoPeriods
       ? `<tr><th class="mh">${text.module}</th><th class="ph">${text.period1}</th><th class="ph">${text.period2}</th></tr>`
-      : `<tr><th class="mh">${text.module}</th><th class="ph">${text.resultCol}</th></tr>`;
+      : `<tr><th class="mh">${text.module}</th><th class="ph">${text.period1}</th></tr>`;
     const emptyRow = twoPeriods
       ? `<tr><td class="mod">—</td><td class="val"></td><td class="val"></td></tr>`
       : `<tr><td class="mod">—</td><td class="val"></td></tr>`;
@@ -363,7 +368,7 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
     </div>
     <div class="sub">${text.forStudent}</div>
     <div class="name">${escapeHtml(d.student.name)}</div>
-    <div class="meta">${text.klas}: ${escapeHtml(d.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(d.schoolYear || '')}</div>
+    <div class="meta">${text.klas}: ${escapeHtml(d.className || '')} &nbsp;•&nbsp; ${text.schoolYear}: ${escapeHtml(d.schoolYear || '')}${twoPeriods ? '' : ` &nbsp;•&nbsp; ${text.onlyPeriod1}`}</div>
     <div class="body">
       <div class="gradeswrap${twoPeriods ? '' : ' center'}">
         <table class="grades${twoPeriods ? '' : ' single'}">
