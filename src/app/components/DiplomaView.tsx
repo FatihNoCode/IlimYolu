@@ -45,10 +45,19 @@ const moduleLabel = (key: string, lang: 'tr' | 'nl') => {
   return m ? (lang === 'tr' ? m.tr : m.nl) : key;
 };
 
+// A diploma may only be downloaded once at least one grade (in either period)
+// has actually been filled in.
+const hasAnyGrade = (g: any): boolean =>
+  Object.keys(g?.period1 || {}).length > 0 || Object.keys(g?.period2 || {}).length > 0;
+
+// True when a student has at least one gradeable module configured AND at
+// least one of those modules is actually graded.
+const isDiplomaReady = (modules: any[] | undefined, g: any): boolean =>
+  Array.isArray(modules) && modules.length > 0 && hasAnyGrade(g);
+
 const T = {
   nl: {
     title: 'Diploma',
-    intro: 'Werkwijze: 1) kies een klas, 2) stel de onderdelen in, 3) selecteer een leerling en geef beoordelingen, 4) download het diploma. De hele klas in één PDF downloaden kan boven- en onderaan.',
     classSection: 'Voor de hele klas',
     studentSection: 'Per leerling',
     selectClass: 'Selecteer klas',
@@ -83,6 +92,8 @@ const T = {
     download: 'Diploma downloaden',
     downloadAll: 'Hele klas downloaden (1 PDF)',
     noStudentsToDownload: 'Geen leerlingen met een diploma om te downloaden.',
+    needGrades: 'Selecteer minstens één onderdeel én vul minstens één beoordeling in voordat u het diploma kunt downloaden.',
+    classNeedGrades: 'Eén of meer leerlingen hebben nog geen enkele beoordeling. Vul voor iedere leerling minstens één beoordeling in, of vink “geen diploma” aan.',
     prev: 'Vorige',
     next: 'Volgende',
     noDiploma: 'Geen diploma (leerling gestopt)',
@@ -99,7 +110,6 @@ const T = {
   },
   tr: {
     title: 'Diploma',
-    intro: 'Adımlar: 1) bir sınıf seçin, 2) bölümleri ayarlayın, 3) bir öğrenci seçip değerlendirin, 4) diplomayı indirin. Tüm sınıfı tek PDF olarak üstten ve alttan indirebilirsiniz.',
     classSection: 'Tüm sınıf için',
     studentSection: 'Öğrenci bazında',
     selectClass: 'Sınıf seç',
@@ -134,6 +144,8 @@ const T = {
     download: 'Diplomayı indir',
     downloadAll: 'Tüm sınıfı indir (1 PDF)',
     noStudentsToDownload: 'İndirilecek diplomalı öğrenci yok.',
+    needGrades: 'Diplomayı indirebilmek için en az bir bölüm seçin ve en az bir değerlendirme girin.',
+    classNeedGrades: 'Bir veya daha fazla öğrencinin henüz hiçbir değerlendirmesi yok. Her öğrenci için en az bir değerlendirme girin veya “diploma yok” seçeneğini işaretleyin.',
     prev: 'Önceki',
     next: 'Sonraki',
     noDiploma: 'Diploma yok (öğrenci ayrıldı)',
@@ -443,6 +455,10 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
       notify.error(text.excludedNotice);
       return;
     }
+    if (!isDiplomaReady(moduleConfig, grades)) {
+      notify.error(text.needGrades);
+      return;
+    }
     const liveData = {
       student: data.student,
       className: data.className,
@@ -471,6 +487,12 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
         notify.error(text.noStudentsToDownload);
         return;
       }
+      // Every included student must have at least one graded module. Excluded
+      // ("geen diploma") students are already filtered out and don't need grades.
+      if (!items.every((d: any) => isDiplomaReady(d.modules, d.grades))) {
+        notify.error(text.classNeedGrades);
+        return;
+      }
       const pages = items.map((d: any) => renderDiplomaPage({ ...d, teacherName: res.teacherName, signature: sig }));
       const className = classes.find((c) => c.id === selectedClass)?.name || '';
       openDiplomaDoc(pages, className);
@@ -487,7 +509,6 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
         <Award className="h-6 w-6 text-emerald-700" />
         <h3 className="text-lg sm:text-xl font-semibold text-emerald-800">{text.title}</h3>
       </div>
-      <p className="text-xs sm:text-sm text-gray-500 mb-4 leading-relaxed">{text.intro}</p>
 
       {/* Class + student selectors */}
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-5">
@@ -520,28 +541,11 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
         </div>
       </div>
 
-      {/* ===== Class-level controls: config + whole-class download ===== */}
+      {/* ===== Class-level controls: module configuration ===== */}
       {selectedClass && (
         <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700/80 mb-2">
           {text.classSection}
         </p>
-      )}
-
-      {/* Download every diploma of the class as one PDF */}
-      {selectedClass && (
-        <div className="mb-3">
-          <button
-            onClick={downloadClass}
-            disabled={downloadingAll || !user?.signature}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-lg transition disabled:opacity-50 text-sm"
-          >
-            <Layers className="h-4 w-4" />
-            {downloadingAll ? '…' : text.downloadAll}
-          </button>
-          {!user?.signature && (
-            <p className="text-xs text-amber-600 mt-1.5">{text.needSignature}</p>
-          )}
-        </div>
       )}
 
       {/* Module configuration for the class */}
@@ -755,7 +759,8 @@ export default function DiplomaView({ classes, language, apiRequest }: DiplomaVi
             </button>
             <button
               onClick={download}
-              disabled={excluded}
+              disabled={excluded || !isDiplomaReady(moduleConfig, grades)}
+              title={!excluded && !isDiplomaReady(moduleConfig, grades) ? text.needGrades : undefined}
               className="flex items-center justify-center gap-1.5 px-5 py-2.5 bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-semibold rounded-lg transition text-sm disabled:opacity-40"
             >
               <Download className="h-4 w-4" />{text.download}
