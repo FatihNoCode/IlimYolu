@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Lock, ArrowLeft, CheckCircle2, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, ArrowLeft, CheckCircle2, Circle, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { translations } from './translations';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getSupabaseClient } from '../../lib/supabase';
@@ -421,7 +421,7 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={8}
                   className="w-full pl-10 pr-10 py-2.5 text-sm sm:text-base border border-gray-200 bg-gray-50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                 />
                 <button
@@ -433,6 +433,20 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {isSignup && (
+                <ul className="mt-2 space-y-1">
+                  {[
+                    { ok: password.length >= 8, label: language === 'tr' ? 'En az 8 karakter' : 'Minstens 8 tekens' },
+                    { ok: /[A-Za-z]/.test(password), label: language === 'tr' ? 'En az bir harf' : 'Minstens één letter' },
+                    { ok: /[0-9]/.test(password), label: language === 'tr' ? 'En az bir rakam' : 'Minstens één cijfer' },
+                  ].map((req, i) => (
+                    <li key={i} className={`flex items-center gap-1.5 text-xs transition ${req.ok ? 'text-emerald-600' : 'text-gray-400'}`}>
+                      {req.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+                      {req.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {isSignup && (
@@ -447,7 +461,7 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={8}
                     className="w-full pl-10 pr-10 py-2.5 text-sm sm:text-base border border-gray-200 bg-gray-50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
                   />
                   <button
