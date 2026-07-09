@@ -62,16 +62,16 @@ export default function ProductTour({ role, language, onClose }: ProductTourProp
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-6xl rounded-3xl bg-white shadow-2xl overflow-hidden">
         {/* Header band */}
-        <div className="bg-gradient-to-br from-emerald-600 to-teal-600 px-6 pt-6 pb-6 text-white relative">
+        <div className="bg-gradient-to-br from-emerald-600 to-teal-600 px-6 py-3 text-white relative">
           <button
             onClick={finish}
-            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            className="absolute top-3 right-4 text-white/80 hover:text-white"
             aria-label={t.close}
           >
             <X className="h-5 w-5" />
           </button>
-          <h3 className="text-lg font-bold leading-tight">{t.title}</h3>
-          <p className="text-sm text-white/80 mt-1">{t.subtitle}</p>
+          <h3 className="text-base font-bold leading-tight">{t.title}</h3>
+          <p className="text-xs text-white/80 mt-0.5">{t.subtitle}</p>
         </div>
 
         <div className="p-4 sm:p-6">
