@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../App';
 import { translations } from './translations';
 import { useHashTab } from '../useHashTab';
-import { Euro, Moon } from 'lucide-react';
+import { Euro, Moon, PlayCircle } from 'lucide-react';
 import booksLogo from '../../imports/books__1_.png';
 import UserMenu from './UserMenu';
+import ProductTour from './ProductTour';
 import AgendaCalendar from './AgendaCalendar';
 import { notify } from './ui/feedback';
 
@@ -67,6 +68,7 @@ function getSchoolPrice(s: BoekhoudingSettings, isMember: boolean, hasSibling: b
 export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   const { language, setLanguage, apiRequest, user } = useApp();
   const t = translations[language];
+  const [showDemo, setShowDemo] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [homework, setHomework] = useState<Homework[]>([]);
   const [homeworkCompletion, setHomeworkCompletion] = useState<Record<string, boolean>>({});
@@ -372,6 +374,9 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
 
   return (
     <div className="size-full overflow-auto p-3 sm:p-4 md:p-6">
+      {showDemo && (
+        <ProductTour role="parent" language={language} onClose={() => setShowDemo(false)} />
+      )}
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6 md:mb-8">
           <div className="flex items-center gap-3">
@@ -385,6 +390,13 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setShowDemo(true)}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white text-emerald-700 rounded-full hover:bg-emerald-50 text-xs sm:text-sm font-semibold shadow-sm transition"
+            >
+              <PlayCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              {language === 'tr' ? 'Demo' : 'Demo'}
+            </button>
             <div className="flex gap-1 bg-white rounded-full p-1 shadow-sm">
               <button
                 onClick={() => setLanguage('tr')}
