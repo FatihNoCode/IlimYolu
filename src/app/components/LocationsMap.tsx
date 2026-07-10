@@ -22,6 +22,11 @@ interface LocationsMapProps {
   t: Record<string, string>;
 }
 
+// The map is pinned to the Netherlands — every branch sits inside it, and there
+// is nothing for a superadmin to find by panning off into the North Sea. Padded
+// slightly beyond the border so the outermost pins aren't flush against an edge.
+const NL_BOUNDS = L.latLngBounds([50.6, 3.1], [53.7, 7.3]);
+
 // Leaflet's default marker points at image files that a bundler won't resolve,
 // so pins are drawn as inline HTML instead — that also lets a selected pin and
 // a pin with lesson types look different without shipping extra assets.
@@ -59,11 +64,37 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const map = L.map(containerRef.current, { scrollWheelZoom: true }).setView([52.2, 5.4], 7);
+    const map = L.map(containerRef.current, {
+      scrollWheelZoom: true,
+      // Panning and zooming stay free inside the Netherlands, but the viewport
+      // can't leave it: maxBounds blocks the pan, and the minZoom set below
+      // stops the map zooming out far enough to show the rest of Europe.
+      maxBounds: NL_BOUNDS,
+      maxBoundsViscosity: 1,
+      maxZoom: 19,
+      // Whole zoom levels are a coarse step here: the country fits at ~6.8, so
+      // rounding down to 6 would pull England into frame. Quarter-steps let the
+      // zoom-out limit land just where the Netherlands fills the pane.
+      zoomSnap: 0.25,
+    });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap',
       maxZoom: 19,
     }).addTo(map);
+
+    // Derive the furthest-out zoom from the container rather than hardcoding a
+    // level: this is the zoom at which the whole country is just visible, so
+    // every pin stays reachable and no amount of zooming out reveals Europe.
+    // Recomputed on resize because it depends on the pane's size.
+    const clampZoomOut = () => {
+      const min = map.getBoundsZoom(NL_BOUNDS);
+      map.setMinZoom(min);
+      if (map.getZoom() < min) map.setZoom(min);
+    };
+    map.fitBounds(NL_BOUNDS);
+    clampZoomOut();
+    map.on('resize', clampZoomOut);
+
     mapRef.current = map;
     return () => {
       map.remove();
