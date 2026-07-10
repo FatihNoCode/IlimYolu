@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, Search } from 'lucide-react';
+import { NETHERLANDS_OUTLINE } from './netherlandsBorder';
 
 export interface LocationRecord {
   id: string;
@@ -26,6 +27,15 @@ interface LocationsMapProps {
 // is nothing for a superadmin to find by panning off into the North Sea. Padded
 // slightly beyond the border so the outermost pins aren't flush against an edge.
 const NL_BOUNDS = L.latLngBounds([50.6, 3.1], [53.7, 7.3]);
+
+// Outer ring of the dimming mask. Spans the whole world so the mask still
+// covers the corners at the furthest-out zoom, whatever the pane's shape.
+const WORLD_RING: [number, number][] = [
+  [-90, -180],
+  [-90, 180],
+  [90, 180],
+  [90, -180],
+];
 
 // Leaflet's default marker points at image files that a bundler won't resolve,
 // so pins are drawn as inline HTML instead — that also lets a selected pin and
@@ -94,6 +104,24 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
     map.fitBounds(NL_BOUNDS);
     clampZoomOut();
     map.on('resize', clampZoomOut);
+
+    // Everything outside the border is dimmed so the Netherlands reads as the
+    // subject of the map. Leaflet fills a multi-ring polygon with the even-odd
+    // rule, so a world-sized ring with the country as its second ring paints
+    // the surroundings and leaves the country itself untouched.
+    L.polygon([WORLD_RING, NETHERLANDS_OUTLINE], {
+      interactive: false,
+      stroke: false,
+      fillColor: '#0f172a',
+      fillOpacity: 0.4,
+    }).addTo(map);
+
+    L.polyline(NETHERLANDS_OUTLINE, {
+      interactive: false,
+      color: '#047857',
+      weight: 1.5,
+      opacity: 0.8,
+    }).addTo(map);
 
     mapRef.current = map;
     return () => {
