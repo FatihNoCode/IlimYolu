@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, Search } from 'lucide-react';
-import { NETHERLANDS_OUTLINE } from './netherlandsBorder';
+import { NETHERLANDS_LAND } from './netherlandsBorder';
 
 export interface LocationRecord {
   id: string;
@@ -105,23 +105,27 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
     clampZoomOut();
     map.on('resize', clampZoomOut);
 
-    // Everything outside the border is dimmed so the Netherlands reads as the
-    // subject of the map. Leaflet fills a multi-ring polygon with the even-odd
-    // rule, so a world-sized ring with the country as its second ring paints
-    // the surroundings and leaves the country itself untouched.
-    L.polygon([WORLD_RING, NETHERLANDS_OUTLINE], {
+    // Everything outside the coastline is dimmed so the Netherlands reads as
+    // the subject of the map. Leaflet fills a multi-ring polygon with the
+    // even-odd rule, so a world-sized ring followed by each landmass paints
+    // the surroundings and leaves the country itself untouched. Kept light: it
+    // should let the neighbours recede, not black them out.
+    L.polygon([WORLD_RING, ...NETHERLANDS_LAND], {
       interactive: false,
       stroke: false,
-      fillColor: '#0f172a',
-      fillOpacity: 0.4,
+      fillColor: '#64748b',
+      fillOpacity: 0.22,
     }).addTo(map);
 
-    L.polyline(NETHERLANDS_OUTLINE, {
-      interactive: false,
-      color: '#047857',
-      weight: 1.5,
-      opacity: 0.8,
-    }).addTo(map);
+    NETHERLANDS_LAND.forEach((ring) => {
+      L.polygon(ring, {
+        interactive: false,
+        fill: false,
+        color: '#047857',
+        weight: 1.25,
+        opacity: 0.55,
+      }).addTo(map);
+    });
 
     mapRef.current = map;
     return () => {
