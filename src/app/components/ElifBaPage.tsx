@@ -895,7 +895,7 @@ function BalloonPopGame({ letters, onComplete }: {
       id: `${letter.id}-${now}-${i}`,
       letter,
       x: 10 + i * 19 + Math.random() * 4,
-      speed: 9 + Math.random() * 5,
+      speed: 7.2 + Math.random() * 4, // 20% slower, so there is time to pick
       startTime: now + i * 400,
       popped: false,
       color: BALLOON_COLORS[i % BALLOON_COLORS.length],
