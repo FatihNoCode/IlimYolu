@@ -91,12 +91,51 @@ const HARAKATS = [
   { id: 'kasra',  symbol: 'ِ', nameNl: 'Kasra', nameTr: 'Esre',  color: '#3b82f6', emoji: '🔵' },
 ];
 
-// Letters grouped into 4 "worlds"
-const WORLDS = [
-  { id: 1, letters: LETTERS.slice(0, 7),  title: 'Wereld 1', titleTr: 'Dünya 1', emoji: '🌱', bg: 'from-emerald-400 to-emerald-600' },
-  { id: 2, letters: LETTERS.slice(7, 14), title: 'Wereld 2', titleTr: 'Dünya 2', emoji: '🌊', bg: 'from-sky-400 to-sky-600' },
-  { id: 3, letters: LETTERS.slice(14, 21),title: 'Wereld 3', titleTr: 'Dünya 3', emoji: '🌸', bg: 'from-amber-400 to-orange-500' },
-  { id: 4, letters: LETTERS.slice(21),    title: 'Wereld 4', titleTr: 'Dünya 4', emoji: '⭐', bg: 'from-violet-400 to-violet-600' },
+// A "sign" is anything that sits on/under a letter. Each carries how to render
+// it on a letter and which existing audio best approximates its sound (there is
+// no dedicated audio for sukoon/shadda/tanwin yet, so we fall back sensibly).
+export interface Sign {
+  id: string;
+  nameNl: string;
+  nameTr: string;
+  color: string;
+  emoji: string;
+  // Given a letter's isolated glyph, return the glyph carrying this sign.
+  render: (arabic: string) => string;
+  // Which audio to play as an approximation (base letter, or a harakat clip).
+  audioHarakat?: string;
+}
+
+const SUKOON: Sign = {
+  id: 'sukoon', nameNl: 'Sukoon (cezm)', nameTr: 'Cezim', color: '#64748b', emoji: '⚪',
+  render: a => `${a}ْ`,
+};
+const SHADDA: Sign = {
+  id: 'shadda', nameNl: 'Shadda (dubbel)', nameTr: 'Şedde', color: '#e11d48', emoji: '🔺',
+  render: a => `${a}ّ`,
+};
+// Tanwin = doubled harakat, sounds like the harakat + "n".
+const TANWIN: Sign[] = [
+  { id: 'fathatan', nameNl: 'Fathatan (an)', nameTr: 'İki üstün', color: '#f59e0b', emoji: '🔴', render: a => `${a}ً`, audioHarakat: 'fatha' },
+  { id: 'dammatan', nameNl: 'Dammatan (un)', nameTr: 'İki ötre',  color: '#10b981', emoji: '🟢', render: a => `${a}ٌ`, audioHarakat: 'damma' },
+  { id: 'kasratan', nameNl: 'Kasratan (in)', nameTr: 'İki esre',  color: '#3b82f6', emoji: '🔵', render: a => `${a}ٍ`, audioHarakat: 'kasra' },
+];
+
+// ─── Curriculum sections (linear path) ─────────────────────────────────────────
+// The whole app is one straight ladder, grouped only for the map's visual
+// chapters: all letters first (learned in growing bundles), then harakat, then
+// the extra signs, then the letter forms, then a mixed mastery section.
+interface Section {
+  id: number;
+  title: string; titleTr: string;
+  emoji: string; bg: string;
+}
+const SECTIONS: Section[] = [
+  { id: 1, title: 'De letters',              titleTr: 'Harfler',                emoji: '🔤', bg: 'from-emerald-400 to-emerald-600' },
+  { id: 2, title: 'De harakaat',             titleTr: 'Harekeler',              emoji: '🎵', bg: 'from-sky-400 to-sky-600' },
+  { id: 3, title: 'Cezm, shadda & tanwin',   titleTr: 'Cezim, şedde & tenvin',  emoji: '⚪', bg: 'from-amber-400 to-orange-500' },
+  { id: 4, title: 'De vormen',               titleTr: 'Şekiller',               emoji: '✍️', bg: 'from-violet-400 to-violet-600' },
+  { id: 5, title: 'Alles door elkaar',       titleTr: 'Hepsi karışık',          emoji: '🎓', bg: 'from-fuchsia-500 to-pink-600' },
 ];
 
 function audioPath(letterId: string, harakat?: string) {
@@ -295,24 +334,6 @@ function LearnGame({ letters, onComplete, lang }: {
       </div>
 
       <p className="text-white/80 text-sm">{tr('tapToHear', lang)}</p>
-
-      {/* Serious info: the four positional forms of the letter */}
-      <div className="bg-white/15 rounded-2xl px-4 py-3 w-full max-w-sm">
-        <p className="text-white/70 text-xs font-bold text-center mb-2">✍️ {tr('forms', lang)}</p>
-        <div className="grid grid-cols-4 gap-2 text-center">
-          {([
-            ['formIsolated', letter.forms.isolated],
-            ['formInitial',  letter.forms.initial],
-            ['formMedial',   letter.forms.medial],
-            ['formFinal',    letter.forms.final],
-          ] as const).map(([label, form]) => (
-            <div key={label} className="bg-white rounded-xl py-2 flex flex-col items-center gap-1">
-              <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 30, lineHeight: 1 }}>{form}</span>
-              <span className="text-[10px] font-bold text-gray-500">{tr(label as keyof typeof T, lang)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
 
       <div className="flex gap-4 mt-2">
         <button onClick={prev} disabled={idx === 0}
@@ -1268,36 +1289,371 @@ function WhackAMoleGame({ letters, onComplete }: {
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 
-type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole' | 'review';
+// ─── Game: Sign Learn (sukoon / shadda / tanwin) ──────────────────────────────
+// Same "hear & see" idea as HarakatLearn, but driven by a Sign[] set so it works
+// for cezm, shadda and tanwin. Audio falls back to the closest existing clip.
+
+function signAudio(letterId: string, sign: Sign) {
+  return sign.audioHarakat ? audioPath(letterId, sign.audioHarakat) : audioPath(letterId);
+}
+
+function SignLearnGame({ letters, signs, onComplete, lang }: {
+  letters: ArabicLetter[]; signs: Sign[]; onComplete: (stars: number) => void; lang: Lang;
+}) {
+  const [letterIdx, setLetterIdx] = useState(0);
+  const [signIdx, setSignIdx] = useState(0);
+  const play = useAudio();
+  const letter = letters[letterIdx];
+  const sign = signs[signIdx];
+  const total = letters.length * signs.length;
+  const current = letterIdx * signs.length + signIdx;
+  const tap = () => play(signAudio(letter.id, sign));
+
+  const next = () => {
+    tap();
+    if (signIdx < signs.length - 1) setSignIdx(s => s + 1);
+    else if (letterIdx < letters.length - 1) { setLetterIdx(l => l + 1); setSignIdx(0); }
+    else onComplete(3);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-5 p-4">
+      <div className="w-full bg-white/20 rounded-full h-2">
+        <div className="bg-white rounded-full h-2 transition-all" style={{ width: `${(current / total) * 100}%` }} />
+      </div>
+
+      {signs.length > 1 && (
+        <div className="flex gap-3 flex-wrap justify-center">
+          {signs.map(s => (
+            <div key={s.id} className={`px-3 py-1 rounded-full text-sm font-bold transition
+              ${s.id === sign.id ? 'bg-white text-gray-800 scale-110 shadow-lg' : 'bg-white/20 text-white/60'}`}>
+              {s.emoji} {lang === 'tr' ? s.nameTr : s.nameNl}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={tap}
+        className="w-52 h-52 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 relative">
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 90, lineHeight: 1 }}>{sign.render(letter.arabic)}</span>
+        <span className="absolute bottom-4 text-2xl animate-pulse">🔊</span>
+      </button>
+
+      <div className="text-center">
+        <p className="text-white font-bold text-xl">{letter.nameNl} + <span style={{ color: sign.color }}>{lang === 'tr' ? sign.nameTr : sign.nameNl}</span></p>
+      </div>
+
+      <button onClick={next}
+        className="px-8 py-3 rounded-xl bg-white text-orange-700 font-bold shadow hover:bg-orange-50 transition text-lg">
+        {current < total - 1 ? tr('next', lang) : tr('done', lang)}
+      </button>
+    </div>
+  );
+}
+
+// ─── Game: Sign Read (recognition, visual) ────────────────────────────────────
+// Shows a letter carrying a random sign; the child names the sign. Purely visual
+// so it needs no dedicated audio, though tapping plays the closest clip.
+
+function SignReadGame({ letters, signs, onComplete, lang }: {
+  letters: ArabicLetter[]; signs: Sign[]; onComplete: (stars: number) => void; lang: Lang;
+}) {
+  type Q = { letter: ArabicLetter; sign: Sign };
+  const [queue] = useState<Q[]>(() =>
+    shuffle(letters).slice(0, 8).map(l => ({ letter: l, sign: signs[Math.floor(Math.random() * signs.length)] }))
+  );
+  const [idx, setIdx] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [correct, setCorrect] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
+  const play = useAudio();
+  const q = queue[idx];
+
+  useEffect(() => { if (q) play(signAudio(q.letter.id, q.sign)); setSelected(null); setFeedback(null); }, [idx]);
+
+  const choose = (signId: string) => {
+    if (feedback) return;
+    setSelected(signId);
+    if (signId === q.sign.id) {
+      setFeedback('correct'); setCorrect(c => c + 1);
+      setTimeout(() => {
+        if (idx < queue.length - 1) setIdx(i => i + 1);
+        else { const pct = (correct + 1) / queue.length; onComplete(pct >= 0.9 ? 3 : pct >= 0.6 ? 2 : 1); }
+      }, 800);
+    } else {
+      setFeedback('wrong'); setLives(l => l - 1);
+      setTimeout(() => { if (lives <= 1) { onComplete(1); return; } setFeedback(null); setSelected(null); }, 800);
+    }
+  };
+
+  if (!q) return null;
+
+  return (
+    <div className="flex flex-col items-center gap-5 p-4">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <span className="text-white font-bold">{idx + 1}/{queue.length}</span>
+        <span className="text-white">✅ {correct}</span>
+      </div>
+
+      <button onClick={() => play(signAudio(q.letter.id, q.sign))}
+        className="w-40 h-40 rounded-3xl bg-white shadow-2xl flex items-center justify-center hover:scale-105 transition">
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 72, lineHeight: 1 }}>{q.sign.render(q.letter.arabic)}</span>
+      </button>
+
+      <p className="text-white/80">{lang === 'tr' ? 'Hangi işareti görüyorsun?' : 'Welk teken zie je?'}</p>
+
+      <div className="flex gap-3 flex-wrap justify-center">
+        {signs.map(s => {
+          const isSel = selected === s.id;
+          const isAns = s.id === q.sign.id;
+          let cls = 'bg-white text-gray-800';
+          if (feedback && isSel && isAns) cls = 'bg-green-400 text-white';
+          if (feedback && isSel && !isAns) cls = 'bg-red-400 text-white';
+          if (feedback && !isSel && isAns) cls = 'bg-green-200 text-green-800';
+          return (
+            <button key={s.id} onClick={() => choose(s.id)}
+              className={`${cls} w-28 h-24 rounded-2xl flex flex-col items-center justify-center gap-1 shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
+              <span className="text-3xl">{s.emoji}</span>
+              <span className="text-xs px-1 text-center">{lang === 'tr' ? s.nameTr : s.nameNl}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {feedback === 'correct' && <div className="text-3xl animate-bounce">🌟 Super!</div>}
+      {feedback === 'wrong' && <div className="text-2xl">❌</div>}
+    </div>
+  );
+}
+
+// ─── Game: Form Learn (start / middle / end) ──────────────────────────────────
+// Only connecting letters are used, so the four forms genuinely differ.
+
+function FormLearnGame({ letters, onComplete, lang }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void; lang: Lang;
+}) {
+  const set = letters.filter(l => l.forms.initial !== l.forms.isolated);
+  const [idx, setIdx] = useState(0);
+  const play = useAudio();
+  const letter = set[idx] || set[0];
+  const formDefs: { key: keyof ArabicLetter['forms']; label: keyof typeof T }[] = [
+    { key: 'isolated', label: 'formIsolated' },
+    { key: 'initial',  label: 'formInitial' },
+    { key: 'medial',   label: 'formMedial' },
+    { key: 'final',    label: 'formFinal' },
+  ];
+
+  const next = () => {
+    play(audioPath(letter.id));
+    if (idx < set.length - 1) setIdx(i => i + 1); else onComplete(3);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-5 p-4">
+      <div className="w-full bg-white/20 rounded-full h-2">
+        <div className="bg-white rounded-full h-2 transition-all" style={{ width: `${((idx + 1) / set.length) * 100}%` }} />
+      </div>
+      <p className="text-white font-bold text-xl">{letter.nameNl} <span className="text-white/60">/ {letter.nameTr}</span></p>
+      <div className="grid grid-cols-2 gap-3">
+        {formDefs.map(f => (
+          <button key={f.key} onClick={() => play(audioPath(letter.id))}
+            className="w-32 h-32 rounded-2xl bg-white shadow-lg flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition">
+            <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 52, lineHeight: 1 }}>{letter.forms[f.key]}</span>
+            <span className="text-xs font-bold text-gray-500 mt-2">{tr(f.label, lang)}</span>
+          </button>
+        ))}
+      </div>
+      <button onClick={next}
+        className="px-8 py-3 rounded-xl bg-white text-orange-700 font-bold shadow hover:bg-orange-50 transition text-lg">
+        {idx < set.length - 1 ? tr('next', lang) : tr('done', lang)}
+      </button>
+    </div>
+  );
+}
+
+// ─── Game: Form Read (which position?) ────────────────────────────────────────
+
+function FormReadGame({ letters, onComplete, lang }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void; lang: Lang;
+}) {
+  const positions: { key: keyof ArabicLetter['forms']; label: keyof typeof T }[] = [
+    { key: 'isolated', label: 'formIsolated' },
+    { key: 'initial',  label: 'formInitial' },
+    { key: 'medial',   label: 'formMedial' },
+    { key: 'final',    label: 'formFinal' },
+  ];
+  type Q = { letter: ArabicLetter; pos: typeof positions[0] };
+  const [queue] = useState<Q[]>(() => {
+    const set = letters.filter(l => l.forms.initial !== l.forms.isolated);
+    return shuffle(set).slice(0, 8).map(l => ({ letter: l, pos: positions[Math.floor(Math.random() * positions.length)] }));
+  });
+  const [idx, setIdx] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [correct, setCorrect] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
+  const play = useAudio();
+  const q = queue[idx];
+
+  useEffect(() => { if (q) play(audioPath(q.letter.id)); setSelected(null); setFeedback(null); }, [idx]);
+
+  const choose = (posKey: string) => {
+    if (feedback) return;
+    setSelected(posKey);
+    if (posKey === q.pos.key) {
+      setFeedback('correct'); setCorrect(c => c + 1);
+      setTimeout(() => {
+        if (idx < queue.length - 1) setIdx(i => i + 1);
+        else { const pct = (correct + 1) / queue.length; onComplete(pct >= 0.9 ? 3 : pct >= 0.6 ? 2 : 1); }
+      }, 800);
+    } else {
+      setFeedback('wrong'); setLives(l => l - 1);
+      setTimeout(() => { if (lives <= 1) { onComplete(1); return; } setFeedback(null); setSelected(null); }, 800);
+    }
+  };
+
+  if (!q) return null;
+
+  return (
+    <div className="flex flex-col items-center gap-5 p-4">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <span className="text-white font-bold">{idx + 1}/{queue.length}</span>
+        <span className="text-white">✅ {correct}</span>
+      </div>
+
+      <div className="w-40 h-40 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center">
+        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 72, lineHeight: 1 }}>{q.letter.forms[q.pos.key]}</span>
+        <span className="text-xs font-bold text-gray-400 mt-1">{q.letter.nameNl}</span>
+      </div>
+
+      <p className="text-white/80">{lang === 'tr' ? 'Bu hangi konum?' : 'Welke positie is dit?'}</p>
+
+      <div className="grid grid-cols-2 gap-3">
+        {positions.map(p => {
+          const isSel = selected === p.key;
+          const isAns = p.key === q.pos.key;
+          let cls = 'bg-white text-gray-800';
+          if (feedback && isSel && isAns) cls = 'bg-green-400 text-white';
+          if (feedback && isSel && !isAns) cls = 'bg-red-400 text-white';
+          if (feedback && !isSel && isAns) cls = 'bg-green-200 text-green-800';
+          return (
+            <button key={p.key} onClick={() => choose(p.key)}
+              className={`${cls} w-32 py-4 rounded-2xl shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
+              {tr(p.label, lang)}
+            </button>
+          );
+        })}
+      </div>
+
+      {feedback === 'correct' && <div className="text-3xl animate-bounce">🌟 Super!</div>}
+      {feedback === 'wrong' && <div className="text-2xl">❌</div>}
+    </div>
+  );
+}
+
+type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole' | 'review' | 'sign-learn' | 'sign-read' | 'form-learn' | 'form-read';
 
 interface Stage {
   id: string;
-  title: string;
+  title: string; titleTr: string;
   emoji: string;
   game: GameType;
-  worldId: number;
-  description: string;
+  sectionId: number;
+  description: string; descriptionTr: string;
+  letters: ArabicLetter[];
+  signs?: Sign[];
 }
+
+// Harakat rendered as generic Signs, so the sign-recognition game can mix them
+// in as distractors alongside sukoon / shadda / tanwin.
+const HARAKAT_SIGNS: Sign[] = HARAKATS.map(h => ({
+  id: h.id, nameNl: h.nameNl, nameTr: h.nameTr, color: h.color, emoji: h.emoji,
+  render: a => `${a}${h.symbol}`, audioHarakat: h.id,
+}));
+
+const B1 = LETTERS.slice(0, 7);
+const B2 = LETTERS.slice(7, 14);
+const B3 = LETTERS.slice(14, 21);
+const B4 = LETTERS.slice(21, 28);
 
 function buildStages(): Stage[] {
   const stages: Stage[] = [];
-  WORLDS.forEach(world => {
-    stages.push({ id: `${world.id}-learn`,       worldId: world.id, title: 'Leren',         emoji: '📖', game: 'learn',        description: 'Leer de letters kennen' });
-    stages.push({ id: `${world.id}-listen`,      worldId: world.id, title: 'Luister & Kies', emoji: '👂', game: 'listen-pick',   description: 'Hoor de letter, kies de goede' });
-    stages.push({ id: `${world.id}-balloon`,     worldId: world.id, title: 'Ballonnen!',     emoji: '🎈', game: 'balloon-pop',   description: 'Pop de juiste ballon!' });
-    stages.push({ id: `${world.id}-name`,        worldId: world.id, title: 'Naam Quiz',      emoji: '🔤', game: 'name-match',    description: 'Wat is de naam van de letter?' });
-    stages.push({ id: `${world.id}-whack`,       worldId: world.id, title: 'Meppen!',        emoji: '🔨', game: 'whack-a-mole',  description: 'Sla de goede letter!' });
-    stages.push({ id: `${world.id}-drag`,        worldId: world.id, title: 'Sorteer!',       emoji: '🔀', game: 'drag-sort',     description: 'Sleep de letters op volgorde' });
-    stages.push({ id: `${world.id}-memory`,      worldId: world.id, title: 'Geheugen',       emoji: '🃏', game: 'memory',        description: 'Vind de passende paren' });
-    stages.push({ id: `${world.id}-falling`,     worldId: world.id, title: 'Vangen!',        emoji: '🧺', game: 'falling-letters', description: 'Vang de vallende letters!' });
-    if (world.id >= 2) {
-      stages.push({ id: `${world.id}-harakat-l`, worldId: world.id, title: 'Harakats',       emoji: '🎵', game: 'harakat-learn', description: 'Leer fatha, damma, kasra' });
-      stages.push({ id: `${world.id}-harakat-q`, worldId: world.id, title: 'Harakat Quiz',   emoji: '🎯', game: 'harakat-quiz',  description: 'Welke harakat hoor je?' });
-      // Spaced repetition: mix in letters from earlier worlds so nothing
-      // learned before is forgotten.
-      stages.push({ id: `${world.id}-review`,    worldId: world.id, title: 'Herhaling',      emoji: '🔁', game: 'review',        description: 'Alles wat je al kent' });
+  const add = (s: Stage) => stages.push(s);
+
+  // Recognition-task pool for the letter section; rotates for variety.
+  const TASK_GAMES: { game: GameType; emoji: string; title: string; titleTr: string; desc: string; descTr: string }[] = [
+    { game: 'listen-pick',     emoji: '👂', title: 'Luister & Kies', titleTr: 'Dinle & Seç', desc: 'Hoor de letter, kies de goede',  descTr: 'Harfi duy, doğrusunu seç' },
+    { game: 'balloon-pop',     emoji: '🎈', title: 'Ballonnen!',     titleTr: 'Balonlar!',   desc: 'Pop de juiste ballon!',          descTr: 'Doğru balonu patlat!' },
+    { game: 'name-match',      emoji: '🔤', title: 'Naam Quiz',      titleTr: 'İsim Testi',  desc: 'Wat is de naam van de letter?',  descTr: 'Harfin adı ne?' },
+    { game: 'whack-a-mole',    emoji: '🔨', title: 'Meppen!',        titleTr: 'Vur!',        desc: 'Sla de goede letter!',           descTr: 'Doğru harfe vur!' },
+    { game: 'falling-letters', emoji: '🧺', title: 'Vangen!',        titleTr: 'Yakala!',     desc: 'Vang de vallende letters!',      descTr: 'Düşen harfleri yakala!' },
+    { game: 'memory',          emoji: '🃏', title: 'Geheugen',       titleTr: 'Hafıza',      desc: 'Vind de passende paren',         descTr: 'Eşleri bul' },
+  ];
+
+  // "Hear & see" learn stage + N rotating recognition tasks for a letter bundle.
+  let taskRot = 0;
+  const bundle = (key: string, letters: ArabicLetter[], emoji: string, title: string, titleTr: string, nTasks: number) => {
+    add({ id: `${key}-learn`, sectionId: 1, letters, game: 'learn', emoji,
+      title, titleTr, description: 'Zie en hoor de letters', descriptionTr: 'Harfleri gör ve duy' });
+    for (let i = 0; i < nTasks; i++) {
+      const t = TASK_GAMES[taskRot++ % TASK_GAMES.length];
+      add({ id: `${key}-t${i}`, sectionId: 1, letters, game: t.game, emoji: t.emoji,
+        title: t.title, titleTr: t.titleTr, description: t.desc, descriptionTr: t.descTr });
     }
-  });
+  };
+
+  // ── Section 1 · Letters, learned in growing bundles (7 → 14 → 28) ──
+  bundle('l-b1', B1,               '📖', 'Leer 1-7',        'Öğren 1-7',       3);
+  bundle('l-b2', B2,               '📖', 'Leer 8-14',       'Öğren 8-14',      3);
+  bundle('l-m1', [...B1, ...B2],   '🔗', 'Samen 1-14',      'Birlikte 1-14',   3);
+  bundle('l-b3', B3,               '📖', 'Leer 15-21',      'Öğren 15-21',     3);
+  bundle('l-b4', B4,               '📖', 'Leer 22-28',      'Öğren 22-28',     3);
+  bundle('l-m2', [...B3, ...B4],   '🔗', 'Samen 15-28',     'Birlikte 15-28',  3);
+  bundle('l-all', LETTERS,         '🌟', 'Alle 28 letters', 'Tüm 28 harf',     4);
+
+  // ── Section 2 · Harakaat (fatha, damma, kasra) ──
+  add({ id: 'h-learn1', sectionId: 2, letters: B1, game: 'harakat-learn', emoji: '🎵',
+    title: 'Leer harakaat', titleTr: 'Harekeleri öğren', description: 'Fatha, damma, kasra', descriptionTr: 'Üstün, ötre, esre' });
+  add({ id: 'h-learn2', sectionId: 2, letters: B2, game: 'harakat-learn', emoji: '🎵',
+    title: 'Meer harakaat', titleTr: 'Daha fazla', description: 'Oefen op nieuwe letters', descriptionTr: 'Yeni harflerde' });
+  add({ id: 'h-quiz', sectionId: 2, letters: LETTERS, game: 'harakat-quiz', emoji: '🎯',
+    title: 'Harakat Quiz', titleTr: 'Hareke Testi', description: 'Welke harakat hoor je?', descriptionTr: 'Hangi harekeyi duyuyorsun?' });
+
+  // ── Section 3 · Cezm (sukoon), shadda & tanwin ──
+  add({ id: 'c-sukoon-l', sectionId: 3, letters: B1, game: 'sign-learn', signs: [SUKOON], emoji: '⚪',
+    title: 'Cezm (sukoon)', titleTr: 'Cezim', description: 'De letter zonder klinker', descriptionTr: 'Sesli harfsiz' });
+  add({ id: 'c-shadda-l', sectionId: 3, letters: B1, game: 'sign-learn', signs: [SHADDA], emoji: '🔺',
+    title: 'Shadda', titleTr: 'Şedde', description: 'De dubbele letter', descriptionTr: 'İkiz harf' });
+  add({ id: 'c-read1', sectionId: 3, letters: LETTERS, game: 'sign-read', signs: [SUKOON, SHADDA, HARAKAT_SIGNS[0]], emoji: '🔍',
+    title: 'Cezm of shadda?', titleTr: 'Cezim mi şedde mi?', description: 'Welk teken zie je?', descriptionTr: 'Hangi işaret?' });
+  add({ id: 'c-tanwin-l', sectionId: 3, letters: B2, game: 'sign-learn', signs: TANWIN, emoji: '🎶',
+    title: 'Tanwin', titleTr: 'Tenvin', description: 'An, un, in', descriptionTr: 'An, un, in' });
+  add({ id: 'c-tanwin-r', sectionId: 3, letters: LETTERS, game: 'sign-read', signs: TANWIN, emoji: '🎯',
+    title: 'Tanwin Quiz', titleTr: 'Tenvin Testi', description: 'Welke tanwin zie je?', descriptionTr: 'Hangi tenvin?' });
+  add({ id: 'c-read-mix', sectionId: 3, letters: LETTERS, game: 'sign-read', signs: [SUKOON, SHADDA, HARAKAT_SIGNS[0], TANWIN[0]], emoji: '🧩',
+    title: 'Alle tekens', titleTr: 'Tüm işaretler', description: 'Herken elk teken', descriptionTr: 'Her işareti tanı' });
+
+  // ── Section 4 · Letter forms (start / middle / end) ──
+  add({ id: 'f-learn1', sectionId: 4, letters: LETTERS.slice(0, 14), game: 'form-learn', emoji: '✍️',
+    title: 'De 4 vormen', titleTr: '4 şekil', description: 'Los, begin, midden, eind', descriptionTr: 'Yalın, baş, orta, son' });
+  add({ id: 'f-learn2', sectionId: 4, letters: LETTERS.slice(14), game: 'form-learn', emoji: '✍️',
+    title: 'Meer vormen', titleTr: 'Daha fazla şekil', description: 'Nog meer letters', descriptionTr: 'Daha çok harf' });
+  add({ id: 'f-read', sectionId: 4, letters: LETTERS, game: 'form-read', emoji: '🧩',
+    title: 'Welke positie?', titleTr: 'Hangi konum?', description: 'Begin, midden of eind?', descriptionTr: 'Baş, orta, son?' });
+
+  // ── Section 5 · Everything mixed (mastery) ──
+  add({ id: 'mix-letters', sectionId: 5, letters: LETTERS, game: 'name-match', emoji: '🎲',
+    title: 'Alle letters', titleTr: 'Tüm harfler', description: 'Alles door elkaar', descriptionTr: 'Hepsi karışık' });
+  add({ id: 'mix-harakat', sectionId: 5, letters: LETTERS, game: 'harakat-quiz', emoji: '🎵',
+    title: 'Alle harakaat', titleTr: 'Tüm harekeler', description: 'Herken elke harakat', descriptionTr: 'Her harekeyi tanı' });
+  add({ id: 'mix-signs', sectionId: 5, letters: LETTERS, game: 'sign-read', signs: [SUKOON, SHADDA, HARAKAT_SIGNS[0], TANWIN[0]], emoji: '⚪',
+    title: 'Alle tekens', titleTr: 'Tüm işaretler', description: 'Herken elk teken', descriptionTr: 'Her işareti tanı' });
+  add({ id: 'mix-boss', sectionId: 5, letters: LETTERS, game: 'falling-letters', emoji: '🏆',
+    title: 'Eindbaas', titleTr: 'Son sınav', description: 'Laat alles zien!', descriptionTr: 'Her şeyi göster!' });
+
   return stages;
 }
 
@@ -1326,25 +1682,26 @@ function WorldMap({ progress, onSelectStage, lang }: {
         </div>
       </div>
 
-      {WORLDS.map(world => {
-        const worldStages = ALL_STAGES.filter(s => s.worldId === world.id);
-        const worldStars = worldStages.reduce((sum, s) => sum + (progress[s.id] || 0), 0);
-        const prevWorldComplete = world.id === 1 || (() => {
-          const prev = ALL_STAGES.filter(s => s.worldId === world.id - 1);
-          return prev.every(s => (progress[s.id] || 0) >= 1);
-        })();
+      {SECTIONS.map(section => {
+        const sectionStages = ALL_STAGES.filter(s => s.sectionId === section.id);
+        if (sectionStages.length === 0) return null;
+        const sectionStars = sectionStages.reduce((sum, s) => sum + (progress[s.id] || 0), 0);
+        // Linear path: a stage unlocks once the previous stage anywhere in the
+        // whole ladder has at least one star.
+        const firstUnlocked = ALL_STAGES.findIndex(s => (progress[s.id] || 0) < 1);
+        const unlockedUpto = firstUnlocked === -1 ? ALL_STAGES.length : firstUnlocked;
 
         return (
-          <div key={world.id} className={`rounded-3xl overflow-hidden shadow-xl ${prevWorldComplete ? '' : 'opacity-50'}`}>
-            <div className={`bg-gradient-to-r ${world.bg} px-5 py-3 flex justify-between items-center`}>
-              <h2 className="text-white font-bold text-lg">{world.emoji} {lang === 'tr' ? world.titleTr : world.title}</h2>
-              <Stars count={worldStars} max={worldStages.length * 3} />
+          <div key={section.id} className="rounded-3xl overflow-hidden shadow-xl">
+            <div className={`bg-gradient-to-r ${section.bg} px-5 py-3 flex justify-between items-center`}>
+              <h2 className="text-white font-bold text-lg">{section.emoji} {lang === 'tr' ? section.titleTr : section.title}</h2>
+              <Stars count={sectionStars} max={sectionStages.length * 3} />
             </div>
             <div className="bg-white/10 p-3 flex flex-col gap-2">
-              {worldStages.map((stage, i) => {
+              {sectionStages.map(stage => {
                 const stars = progress[stage.id] || 0;
-                const prevStageComplete = i === 0 || (progress[worldStages[i - 1].id] || 0) >= 1;
-                const locked = !prevWorldComplete || !prevStageComplete;
+                const globalIdx = ALL_STAGES.findIndex(s => s.id === stage.id);
+                const locked = globalIdx > unlockedUpto;
                 return (
                   <button key={stage.id}
                     disabled={locked}
@@ -1354,8 +1711,8 @@ function WorldMap({ progress, onSelectStage, lang }: {
                     `}>
                     <span className="text-2xl">{locked ? '🔒' : stage.emoji}</span>
                     <div className="flex-1">
-                      <p className="text-white font-bold text-sm">{stage.title}</p>
-                      <p className="text-white/60 text-xs">{stage.description}</p>
+                      <p className="text-white font-bold text-sm">{lang === 'tr' ? stage.titleTr : stage.title}</p>
+                      <p className="text-white/60 text-xs">{lang === 'tr' ? stage.descriptionTr : stage.description}</p>
                     </div>
                     <Stars count={stars} />
                   </button>
@@ -1377,7 +1734,7 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
   onBack: () => void; lang: 'nl' | 'tr';
 }) {
   const stage = ALL_STAGES.find(s => s.id === stageId)!;
-  const world = WORLDS.find(w => w.id === stage.worldId)!;
+  const section = SECTIONS.find(s => s.id === stage.sectionId)!;
   const [showConfetti, setShowConfetti] = useState(false);
   const [done, setDone] = useState(false);
   const [earnedStars, setEarnedStars] = useState(0);
@@ -1390,15 +1747,13 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
     setTimeout(() => setShowConfetti(false), 3000);
   };
 
-  const letters = world.letters;
-  // Review stages quiz every letter learned up to and including this world.
-  const reviewLetters = LETTERS.slice(0, world.id * 7);
+  const letters = stage.letters;
+  const signs = stage.signs || [SUKOON];
 
   const renderGame = () => {
-    if (stage.game === 'review') return <NameMatchGame letters={pick(reviewLetters, Math.min(8, reviewLetters.length))} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'learn') return <LearnGame letters={letters} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'listen-pick') return <ListenPickGame letters={letters} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
-    if (stage.game === 'name-match') return <NameMatchGame letters={letters} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
+    if (stage.game === 'name-match' || stage.game === 'review') return <NameMatchGame letters={letters} allLetters={LETTERS} onComplete={handleComplete} lang={lang} />;
     if (stage.game === 'drag-sort') return <DragSortGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'memory') return <MemoryGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'harakat-learn') return <HarakatLearnGame letters={letters} onComplete={handleComplete} />;
@@ -1406,18 +1761,22 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
     if (stage.game === 'balloon-pop') return <BalloonPopGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'falling-letters') return <FallingLettersGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'whack-a-mole') return <WhackAMoleGame letters={letters} onComplete={handleComplete} />;
+    if (stage.game === 'sign-learn') return <SignLearnGame letters={letters} signs={signs} onComplete={handleComplete} lang={lang} />;
+    if (stage.game === 'sign-read') return <SignReadGame letters={letters} signs={signs} onComplete={handleComplete} lang={lang} />;
+    if (stage.game === 'form-learn') return <FormLearnGame letters={letters} onComplete={handleComplete} lang={lang} />;
+    if (stage.game === 'form-read') return <FormReadGame letters={letters} onComplete={handleComplete} lang={lang} />;
     return null;
   };
 
   return (
-    <div className={`min-h-full bg-gradient-to-b ${world.bg} flex flex-col`}>
+    <div className={`min-h-full bg-gradient-to-b ${section.bg} flex flex-col`}>
       <Confetti show={showConfetti} />
 
       {/* Header */}
       <div className="flex items-center justify-between p-4">
         <button onClick={onBack} className="text-white/80 hover:text-white font-bold text-lg transition">{tr('back', lang)}</button>
         <div className="text-center">
-          <p className="text-white font-bold">{stage.emoji} {stage.title}</p>
+          <p className="text-white font-bold">{stage.emoji} {lang === 'tr' ? stage.titleTr : stage.title}</p>
         </div>
         <Stars count={progress[stageId] || 0} />
       </div>
