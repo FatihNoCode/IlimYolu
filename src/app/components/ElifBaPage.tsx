@@ -3,6 +3,9 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
 
+// Real Quranic Naskh font (loaded in index.html), with graceful fallbacks.
+const ARABIC_FONT = "'Amiri', 'Scheherazade New', serif";
+
 // ─── Bilingual UI strings ──────────────────────────────────────────────────────
 // Only the shared "chrome" (home, map, results, leaderboard, prompts) is
 // translated here; per-letter names already carry both languages in the data.
@@ -25,6 +28,7 @@ const T = {
   tryAgain:        { nl: 'Goed geprobeerd! Oefen nog een keer!', tr: 'İyi denemeydi! Bir daha dene!' },
   mapBtn:          { nl: '🗺️ Kaart', tr: '🗺️ Harita' },
   retry:           { nl: '🔄 Opnieuw', tr: '🔄 Tekrar' },
+  nextLevel:       { nl: 'Volgende level →', tr: 'Sonraki seviye →' },
   namePrompt:      { nl: 'Hoe heet je?', tr: 'Adın ne?' },
   nameSub:         { nl: 'Zo kom je op de topperslijst! 🏆', tr: 'Böylece sıralamaya girersin! 🏆' },
   namePlaceholder: { nl: 'Jouw naam', tr: 'Adın' },
@@ -283,7 +287,7 @@ function LetterCard({ letter, size = 'md', onClick, glow }: {
         ${sizes[size]}
       `}
     >
-      <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', lineHeight: 1 }} className={sizes[size].split(' ')[0]}>
+      <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, lineHeight: 1 }} className={sizes[size].split(' ')[0]}>
         {letter.arabic}
       </span>
       <span className="text-xs font-bold text-gray-500">{letter.nameNl}</span>
@@ -300,6 +304,12 @@ function LearnGame({ letters, onComplete, lang }: {
   const [tapped, setTapped] = useState<Set<number>>(new Set());
   const play = useAudio();
   const letter = letters[idx];
+
+  // A single letter is shown at a time, so auto-play its sound (0.5s delay).
+  useEffect(() => {
+    const t = setTimeout(() => play(audioPath(letter.id)), 500);
+    return () => clearTimeout(t);
+  }, [idx]);
 
   const tap = () => {
     play(audioPath(letter.id));
@@ -323,7 +333,7 @@ function LearnGame({ letters, onComplete, lang }: {
         onClick={tap}
         className="w-52 h-52 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all duration-150 relative"
       >
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 100, lineHeight: 1 }}>{letter.arabic}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 100, lineHeight: 1 }}>{letter.arabic}</span>
         {tapped.has(idx) && <span className="absolute top-3 right-3 text-green-500 text-xl">✓</span>}
         <span className="absolute bottom-4 text-3xl animate-bounce">🔊</span>
       </button>
@@ -430,7 +440,7 @@ function ListenPickGame({ letters, allLetters, onComplete, lang }: {
           return (
             <button key={ch.id} onClick={() => choose(ch)}
               className={`${bg} rounded-2xl p-4 flex flex-col items-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150`}>
-              <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 52, lineHeight: 1 }}>{ch.arabic}</span>
+              <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 52, lineHeight: 1 }}>{ch.arabic}</span>
               <span className="text-xs font-bold text-gray-500 mt-1">{lang === 'tr' ? ch.nameTr : ch.nameNl}</span>
             </button>
           );
@@ -506,7 +516,7 @@ function NameMatchGame({ letters, allLetters, onComplete, lang }: {
 
       <div className="w-64 h-40 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:scale-105 transition"
         onClick={() => play(audioPath(current.id))}>
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 88, lineHeight: 1 }}>{current.arabic}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 88, lineHeight: 1 }}>{current.arabic}</span>
       </div>
       <p className="text-white/80 text-sm">Wat is de naam van deze letter?</p>
 
@@ -582,7 +592,7 @@ function DragSortGame({ letters, onComplete }: {
               ${submitted && letter.id === target[i].id ? 'ring-2 ring-green-400' : ''}
               ${submitted && !correct && letter.id !== target[i].id ? 'ring-2 ring-red-400' : ''}
             `}>
-            <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 36 }}>{letter.arabic}</span>
+            <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 36 }}>{letter.arabic}</span>
             <span className="text-xs text-gray-500">{letter.nameNl}</span>
           </div>
         ))}
@@ -662,7 +672,7 @@ function MemoryGame({ letters, onComplete }: {
               `}>
               {isFlipped ? (
                 card.type === 'arabic'
-                  ? <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 36 }}>{card.letter.arabic}</span>
+                  ? <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 36 }}>{card.letter.arabic}</span>
                   : <span className="text-xs text-center px-1">{card.letter.nameNl}</span>
               ) : '?'}
             </button>
@@ -688,6 +698,12 @@ function HarakatLearnGame({ letters, onComplete }: {
 
   const tap = () => play(audioPath(letter.id, harakat.id));
 
+  // One letter+harakat at a time → auto-play its single sound (0.5s delay).
+  useEffect(() => {
+    const t = setTimeout(() => play(audioPath(letter.id, harakat.id)), 500);
+    return () => clearTimeout(t);
+  }, [letterIdx, harakatIdx]);
+
   const next = () => {
     tap();
     if (harakatIdx < 2) setHarakatIdx(h => h + 1);
@@ -712,7 +728,7 @@ function HarakatLearnGame({ letters, onComplete }: {
 
       <button onClick={tap}
         className="w-52 h-52 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 relative">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 90, lineHeight: 1 }}>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 90, lineHeight: 1 }}>
           {harakatIdx === 0 ? `${letter.arabic}َ` : harakatIdx === 1 ? `${letter.arabic}ُ` : `${letter.arabic}ِ`}
         </span>
         <span className="absolute bottom-4 text-2xl animate-pulse">🔊</span>
@@ -792,7 +808,7 @@ function HarakatQuizGame({ letters, onComplete }: {
       </button>
 
       <div className="w-32 h-28 rounded-2xl bg-white shadow-lg flex flex-col items-center justify-center">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 56 }}>{q.letter.arabic}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 56 }}>{q.letter.arabic}</span>
         <span className="text-xs text-gray-500 font-bold">{q.letter.nameNl}</span>
       </div>
 
@@ -958,7 +974,7 @@ function BalloonPopGame({ letters, onComplete }: {
               <div className="w-16 h-20 rounded-full flex items-center justify-center shadow-lg relative overflow-hidden"
                 style={{ background: BALLOON_COLORS[i % BALLOON_COLORS.length] }}>
                 <div className="absolute top-2 left-3 w-4 h-6 bg-white/30 rounded-full rotate-[-20deg]" />
-                <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 32, color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+                <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 32, color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                   {b.letter.arabic}
                 </span>
               </div>
@@ -1109,7 +1125,7 @@ function FallingLettersGame({ letters, onComplete }: {
 
       <div className="flex items-center gap-2 bg-white/20 rounded-full px-4 py-1">
         <span className="text-white text-sm">Vang:</span>
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 24, color: 'white' }}>{targetLetter.arabic}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 24, color: 'white' }}>{targetLetter.arabic}</span>
         <span className="text-white/70 text-sm">({targetLetter.nameNl})</span>
         <button onClick={() => play(audioPath(targetLetter.id))} className="text-lg">🔊</button>
       </div>
@@ -1126,7 +1142,7 @@ function FallingLettersGame({ letters, onComplete }: {
           <div key={item.id} className="absolute transition-none"
             style={{ left: `${item.x}%`, top: `${item.y}%`, transform: 'translate(-50%, -50%)' }}>
             <div className="w-12 h-12 rounded-xl bg-white shadow-lg flex items-center justify-center">
-              <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 28 }}>{item.letter.arabic}</span>
+              <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 28 }}>{item.letter.arabic}</span>
             </div>
           </div>
         ))}
@@ -1241,7 +1257,7 @@ function WhackAMoleGame({ letters, onComplete }: {
 
       <div className="flex items-center gap-2 bg-white/20 rounded-full px-4 py-2">
         <span className="text-white font-bold">Sla:</span>
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 28, color: 'white' }}>{targetLetter.arabic}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 28, color: 'white' }}>{targetLetter.arabic}</span>
         <span className="text-white/70">({targetLetter.nameNl})</span>
         <button onClick={() => play(audioPath(targetLetter.id))} className="text-xl hover:scale-110 transition">🔊</button>
       </div>
@@ -1263,7 +1279,7 @@ function WhackAMoleGame({ letters, onComplete }: {
               <div className={`flex flex-col items-center transition-all duration-200 ${
                 whacked === i ? 'scale-0' : 'animate-[mole-pop_0.3s_ease-out]'
               }`}>
-                <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 42, color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 42, color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
                   {letter.arabic}
                 </span>
               </div>
@@ -1309,6 +1325,12 @@ function SignLearnGame({ letters, signs, onComplete, lang }: {
   const current = letterIdx * signs.length + signIdx;
   const tap = () => play(signAudio(letter.id, sign));
 
+  // One letter+sign at a time → auto-play its single sound (0.5s delay).
+  useEffect(() => {
+    const t = setTimeout(() => play(signAudio(letter.id, sign)), 500);
+    return () => clearTimeout(t);
+  }, [letterIdx, signIdx]);
+
   const next = () => {
     tap();
     if (signIdx < signs.length - 1) setSignIdx(s => s + 1);
@@ -1335,7 +1357,7 @@ function SignLearnGame({ letters, signs, onComplete, lang }: {
 
       <button onClick={tap}
         className="w-52 h-52 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 relative">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 90, lineHeight: 1 }}>{sign.render(letter.arabic)}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 90, lineHeight: 1 }}>{sign.render(letter.arabic)}</span>
         <span className="absolute bottom-4 text-2xl animate-pulse">🔊</span>
       </button>
 
@@ -1399,7 +1421,7 @@ function SignReadGame({ letters, signs, onComplete, lang }: {
 
       <button onClick={() => play(signAudio(q.letter.id, q.sign))}
         className="w-40 h-40 rounded-3xl bg-white shadow-2xl flex items-center justify-center hover:scale-105 transition">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 72, lineHeight: 1 }}>{q.sign.render(q.letter.arabic)}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 72, lineHeight: 1 }}>{q.sign.render(q.letter.arabic)}</span>
       </button>
 
       <p className="text-white/80">{lang === 'tr' ? 'Hangi işareti görüyorsun?' : 'Welk teken zie je?'}</p>
@@ -1438,6 +1460,12 @@ function FormLearnGame({ letters, onComplete, lang }: {
   const [idx, setIdx] = useState(0);
   const play = useAudio();
   const letter = set[idx] || set[0];
+
+  // One letter's forms shown at a time; a single base sound → auto-play (0.5s).
+  useEffect(() => {
+    const t = setTimeout(() => play(audioPath(letter.id)), 500);
+    return () => clearTimeout(t);
+  }, [idx]);
   const formDefs: { key: keyof ArabicLetter['forms']; label: keyof typeof T }[] = [
     { key: 'isolated', label: 'formIsolated' },
     { key: 'initial',  label: 'formInitial' },
@@ -1460,7 +1488,7 @@ function FormLearnGame({ letters, onComplete, lang }: {
         {formDefs.map(f => (
           <button key={f.key} onClick={() => play(audioPath(letter.id))}
             className="w-32 h-32 rounded-2xl bg-white shadow-lg flex flex-col items-center justify-center hover:scale-105 active:scale-95 transition">
-            <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 52, lineHeight: 1 }}>{letter.forms[f.key]}</span>
+            <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 52, lineHeight: 1 }}>{letter.forms[f.key]}</span>
             <span className="text-xs font-bold text-gray-500 mt-2">{tr(f.label, lang)}</span>
           </button>
         ))}
@@ -1525,7 +1553,7 @@ function FormReadGame({ letters, onComplete, lang }: {
       </div>
 
       <div className="w-40 h-40 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 72, lineHeight: 1 }}>{q.letter.forms[q.pos.key]}</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 72, lineHeight: 1 }}>{q.letter.forms[q.pos.key]}</span>
         <span className="text-xs font-bold text-gray-400 mt-1">{q.letter.nameNl}</span>
       </div>
 
@@ -1728,10 +1756,10 @@ function WorldMap({ progress, onSelectStage, lang }: {
 
 // ─── Stage Wrapper ────────────────────────────────────────────────────────────
 
-function StageView({ stageId, progress, onComplete, onBack, lang }: {
+function StageView({ stageId, progress, onComplete, onBack, onNext, lang }: {
   stageId: string; progress: Record<string, any>;
   onComplete: (stageId: string, stars: number) => void;
-  onBack: () => void; lang: 'nl' | 'tr';
+  onBack: () => void; onNext: () => void; lang: 'nl' | 'tr';
 }) {
   const stage = ALL_STAGES.find(s => s.id === stageId)!;
   const section = SECTIONS.find(s => s.id === stage.sectionId)!;
@@ -1790,12 +1818,13 @@ function StageView({ stageId, progress, onComplete, onBack, lang }: {
             {earnedStars === 3 ? tr('perfect', lang) : earnedStars === 2 ? tr('good', lang) : tr('tryAgain', lang)}
           </p>
           <div className="flex gap-3 mt-4">
-            <button onClick={onBack} className="px-6 py-3 rounded-xl bg-white/20 text-white font-bold hover:bg-white/30 transition">
-              {tr('mapBtn', lang)}
-            </button>
             <button onClick={() => { setDone(false); setShowConfetti(false); }}
-              className="px-6 py-3 rounded-xl bg-white text-gray-800 font-bold shadow hover:bg-gray-50 transition">
+              className="px-6 py-3 rounded-xl bg-white/20 text-white font-bold hover:bg-white/30 transition">
               {tr('retry', lang)}
+            </button>
+            <button onClick={onNext}
+              className="px-6 py-3 rounded-xl bg-white text-emerald-700 font-bold shadow hover:bg-emerald-50 transition">
+              {tr('nextLevel', lang)}
             </button>
           </div>
         </div>
@@ -1859,7 +1888,7 @@ function NameEntry({ lang, onSubmit }: { lang: Lang; onSubmit: (name: string) =>
   return (
     <div className="min-h-full bg-gradient-to-b from-emerald-500 via-teal-600 to-cyan-700 flex flex-col items-center justify-center gap-6 p-6">
       <div className="w-28 h-28 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shadow-2xl">
-        <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 56, color: 'white' }}>أ ب</span>
+        <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 56, color: 'white' }}>أ ب</span>
       </div>
       <h1 className="text-3xl font-black text-white text-center">{tr('namePrompt', lang)}</h1>
       <p className="text-white/80 text-center">{tr('nameSub', lang)}</p>
@@ -1920,10 +1949,16 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
   if (typeof view === 'object') {
     return (
       <StageView
+        key={view.stageId}
         stageId={view.stageId}
         progress={progress}
         onComplete={handleComplete}
         onBack={() => setView('map')}
+        onNext={() => {
+          const i = ALL_STAGES.findIndex(s => s.id === view.stageId);
+          const nxt = ALL_STAGES[i + 1];
+          setView(nxt ? { stageId: nxt.id } : 'map');
+        }}
         lang={lang}
       />
     );
@@ -1971,7 +2006,7 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
         {/* Logo */}
         <div className="relative">
           <div className="w-36 h-36 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shadow-2xl">
-            <span lang="ar" dir="rtl" style={{ fontFamily: 'serif', fontSize: 72, color: 'white' }}>أ ب</span>
+            <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 72, color: 'white' }}>أ ب</span>
           </div>
           <div className="absolute -top-2 -right-2 w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center text-2xl shadow-lg">
             ⭐
