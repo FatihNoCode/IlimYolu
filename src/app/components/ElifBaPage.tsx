@@ -2027,13 +2027,12 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
     <div className="min-h-full bg-gradient-to-b from-slate-600 via-slate-700 to-slate-600 flex flex-col items-center justify-between p-6 relative">
       <TopThreeCorner playerName={name} lang={lang} onOpen={() => setView('leaderboard')} />
 
-      <div className="w-full flex items-center justify-end gap-3">
+      <div className="w-full flex items-center">
         {onBack ? (
           <button onClick={onBack} className="text-white/60 hover:text-white font-medium transition text-sm">
             {tr('backToLogin', lang)}
           </button>
         ) : null}
-        {LangButton}
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center gap-8 text-center">
@@ -2066,7 +2065,7 @@ function TopThreeCorner({ playerName, lang, onOpen }: { playerName: string; lang
 
   return (
     <button onClick={onOpen}
-      className="absolute top-4 left-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur px-3 py-2 text-left hover:bg-white/10 transition min-w-[140px]">
+      className="absolute top-4 right-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur px-3 py-2 text-left hover:bg-white/10 transition min-w-[140px]">
       <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">{tr('leaderboard', lang).replace(/🏆\s?/, '')}</p>
       {rows === null ? (
         <p className="text-white/50 text-xs">…</p>
