@@ -98,8 +98,8 @@ export const LETTERS: ArabicLetter[] = [
 
 const HARAKATS = [
   { id: 'fatha',  symbol: 'َ', nameNl: 'Fatha', nameTr: 'Üstün', color: '#f59e0b', emoji: '🔴' },
-  { id: 'damma',  symbol: 'ُ', nameNl: 'Damma', nameTr: 'Ötre',  color: '#10b981', emoji: '🟢' },
   { id: 'kasra',  symbol: 'ِ', nameNl: 'Kasra', nameTr: 'Esre',  color: '#3b82f6', emoji: '🔵' },
+  { id: 'damma',  symbol: 'ُ', nameNl: 'Damma', nameTr: 'Ötre',  color: '#10b981', emoji: '🟢' },
 ];
 
 // A "sign" is anything that sits on/under a letter. Each carries how to render
@@ -387,7 +387,7 @@ function ListenPickGame({ letters, allLetters, onComplete, lang }: {
   letters: ArabicLetter[]; allLetters: ArabicLetter[];
   onComplete: (stars: number) => void; lang: 'nl' | 'tr';
 }) {
-  const [queue] = useState(() => shuffle(letters));
+  const [queue] = useState(() => shuffle(letters).slice(0, 15));
   const [idx, setIdx] = useState(0);
   const [choices, setChoices] = useState<ArabicLetter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -425,7 +425,7 @@ function ListenPickGame({ letters, allLetters, onComplete, lang }: {
       setLives(l => l - 1);
       play(audioPath(current.id)); // replay so the child can hear it again
       setTimeout(() => {
-        if (lives <= 1) { onComplete(1); return; }
+        if (lives <= 1) { onComplete(0); return; }
         setFeedback(null);
         setSelected(null);
       }, 900);
@@ -459,7 +459,6 @@ function ListenPickGame({ letters, allLetters, onComplete, lang }: {
           let bg = 'bg-white';
           if (feedback && isSelected && isAnswer) bg = 'bg-green-400';
           if (feedback && isSelected && !isAnswer) bg = 'bg-red-400';
-          if (feedback && !isSelected && isAnswer) bg = 'bg-green-200';
           return (
             <button key={ch.id} onClick={() => choose(ch)}
               className={`${bg} rounded-2xl p-5 flex flex-col items-center shadow-md hover:scale-105 active:scale-95 transition-all duration-150`}>
@@ -482,7 +481,7 @@ function NameMatchGame({ letters, allLetters, onComplete, lang }: {
   letters: ArabicLetter[]; allLetters: ArabicLetter[];
   onComplete: (stars: number) => void; lang: 'nl' | 'tr';
 }) {
-  const [queue] = useState(() => shuffle(letters));
+  const [queue] = useState(() => shuffle(letters).slice(0, 15));
   const [idx, setIdx] = useState(0);
   const [choices, setChoices] = useState<ArabicLetter[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -520,7 +519,7 @@ function NameMatchGame({ letters, allLetters, onComplete, lang }: {
       setLives(l => l - 1);
       play(audioPath(current.id)); // replay so the child can hear it again
       setTimeout(() => {
-        if (lives <= 1) { onComplete(1); return; }
+        if (lives <= 1) { onComplete(0); return; }
         setFeedback(null);
         setSelected(null);
       }, 900);
@@ -550,7 +549,6 @@ function NameMatchGame({ letters, allLetters, onComplete, lang }: {
           let bg = 'bg-white';
           if (feedback && isSelected && isAnswer) bg = 'bg-green-400';
           if (feedback && isSelected && !isAnswer) bg = 'bg-red-400';
-          if (feedback && !isSelected && isAnswer) bg = 'bg-green-200';
           return (
             <button key={ch.id} onClick={() => choose(ch)}
               className={`${bg} rounded-2xl py-5 px-4 text-xl font-bold text-gray-800 shadow-md hover:scale-105 active:scale-95 transition-all`}>
@@ -773,9 +771,12 @@ function HarakatQuizGame({ letters, onComplete }: {
   letters: ArabicLetter[]; onComplete: (stars: number) => void;
 }) {
   type Q = { letter: ArabicLetter; harakat: typeof HARAKATS[0] };
+  // Cover every letter+harakat combo in the passed bucket, capped at 15 per
+  // level. The curriculum splits letters into small buckets so each stage is
+  // short and every combo is practised somewhere.
   const [queue] = useState<Q[]>(() => shuffle(
     letters.flatMap(l => HARAKATS.map(h => ({ letter: l, harakat: h })))
-  ).slice(0, letters.length * 2));
+  ).slice(0, 15));
   const [idx, setIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [correct, setCorrect] = useState(0);
@@ -807,7 +808,7 @@ function HarakatQuizGame({ letters, onComplete }: {
       setLives(l => l - 1);
       play(audioPath(q.letter.id, q.harakat.id)); // replay so the child can hear it again
       setTimeout(() => {
-        if (lives <= 1) { onComplete(1); return; }
+        if (lives <= 1) { onComplete(0); return; }
         setFeedback(null); setSelected(null);
       }, 800);
     }
@@ -842,13 +843,15 @@ function HarakatQuizGame({ letters, onComplete }: {
           let cls = 'bg-white text-gray-800';
           if (feedback && isSel && isAns) cls = 'bg-green-400 text-white';
           if (feedback && isSel && !isAns) cls = 'bg-red-400 text-white';
-          if (feedback && !isSel && isAns) cls = 'bg-green-200 text-green-800';
           return (
             <button key={h.id} onClick={() => choose(h.id)}
-              className={`${cls} w-24 h-24 rounded-2xl flex flex-col items-center justify-center gap-1 shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
-              <span className="text-3xl">{h.emoji}</span>
+              className={`${cls} w-28 h-32 rounded-2xl flex flex-col items-center justify-center gap-1 shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
+              {/* U+25CC ◌ renders as a proper dotted-circle placeholder in
+                  most system fonts; Amiri draws it as a hollow box, so pin
+                  this to the system font stack while the combining harakat
+                  still stacks on top / under. */}
+              <span lang="ar" dir="rtl" style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif', fontSize: 56, lineHeight: 1.1 }}>{`◌${h.symbol}`}</span>
               <span className="text-sm">{h.nameNl}</span>
-              <span className="text-xs opacity-60">{h.nameTr}</span>
             </button>
           );
         })}
@@ -935,7 +938,7 @@ function BalloonPopGame({ letters, onComplete }: {
     const remaining = livesRef.current - 1;
     setLives(remaining);
     setFeedback(msg);
-    if (remaining <= 0) { setTimeout(finish, 600); return; }
+    if (remaining <= 0) { setTimeout(() => onComplete(0), 600); return; }
     setTimeout(() => {
       setFeedback(null);
       if (thenAdvance) advance();
@@ -1141,7 +1144,7 @@ function FallingLettersGame({ letters, onComplete }: {
             setTimeout(() => setFlash(null), 250);
           } else {
             setLives(l => {
-              if (l <= 1) { onComplete(finalStars()); return 0; }
+              if (l <= 1) { onComplete(0); return 0; }
               return l - 1;
             });
             setCombo(0);
@@ -1293,12 +1296,12 @@ function WhackAMoleGame({ letters, onComplete }: {
     setRound(nextRound);
   }, [letters, buildHoles, play]);
 
-  // Every 2.5s reshuffle the 6 letters' positions so the player has to keep
+  // Every 3.5s reshuffle the 6 letters' positions so the player has to keep
   // tracking the target's sound rather than pointing at a fixed hole.
   useEffect(() => {
     shuffleRef.current = setInterval(() => {
       setHoles(prev => shuffle(prev));
-    }, 2500);
+    }, 3500);
     return () => clearInterval(shuffleRef.current!);
   }, [targetLetter]);
 
@@ -1318,7 +1321,7 @@ function WhackAMoleGame({ letters, onComplete }: {
     } else {
       setWrongHit(holeIdx);
       setLives(l => {
-        if (l <= 1) { onComplete(finalStars(scoreRef.current)); return 0; }
+        if (l <= 1) { onComplete(0); return 0; }
         return l - 1;
       });
       play(audioPath(targetLetter.id));
@@ -1511,7 +1514,7 @@ function SignReadGame({ letters, signs, onComplete, lang }: {
     } else {
       setFeedback('wrong'); setLives(l => l - 1);
       play(signAudio(q.letter.id, q.sign)); // replay so the child can hear it again
-      setTimeout(() => { if (lives <= 1) { onComplete(1); return; } setFeedback(null); setSelected(null); }, 800);
+      setTimeout(() => { if (lives <= 1) { onComplete(0); return; } setFeedback(null); setSelected(null); }, 800);
     }
   };
 
@@ -1539,7 +1542,6 @@ function SignReadGame({ letters, signs, onComplete, lang }: {
           let cls = 'bg-white text-gray-800';
           if (feedback && isSel && isAns) cls = 'bg-green-400 text-white';
           if (feedback && isSel && !isAns) cls = 'bg-red-400 text-white';
-          if (feedback && !isSel && isAns) cls = 'bg-green-200 text-green-800';
           return (
             <button key={s.id} onClick={() => choose(s.id)}
               className={`${cls} w-28 h-24 rounded-2xl flex flex-col items-center justify-center gap-1 shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
@@ -1642,7 +1644,7 @@ function FormReadGame({ letters, onComplete, lang }: {
     } else {
       setFeedback('wrong'); setLives(l => l - 1);
       play(audioPath(q.letter.id)); // replay so the child can hear it again
-      setTimeout(() => { if (lives <= 1) { onComplete(1); return; } setFeedback(null); setSelected(null); }, 800);
+      setTimeout(() => { if (lives <= 1) { onComplete(0); return; } setFeedback(null); setSelected(null); }, 800);
     }
   };
 
@@ -1670,7 +1672,6 @@ function FormReadGame({ letters, onComplete, lang }: {
           let cls = 'bg-white text-gray-800';
           if (feedback && isSel && isAns) cls = 'bg-green-400 text-white';
           if (feedback && isSel && !isAns) cls = 'bg-red-400 text-white';
-          if (feedback && !isSel && isAns) cls = 'bg-green-200 text-green-800';
           return (
             <button key={p.key} onClick={() => choose(p.key)}
               className={`${cls} w-32 py-4 rounded-2xl shadow-md font-bold hover:scale-105 active:scale-95 transition-all`}>
@@ -1746,13 +1747,46 @@ function buildStages(): Stage[] {
   bundle('l-m2', [...B3, ...B4],   '🔗', 'Samen 15-28',     'Birlikte 15-28',  3);
   bundle('l-all', LETTERS,         '🌟', 'Alle 28 letters', 'Tüm 28 harf',     4);
 
-  // ── Section 2 · Harakaat (fatha, damma, kasra) ──
-  add({ id: 'h-learn1', sectionId: 2, letters: B1, game: 'harakat-learn', emoji: '🎵',
-    title: 'Leer harakaat', titleTr: 'Harekeleri öğren', description: 'Fatha, damma, kasra', descriptionTr: 'Üstün, ötre, esre' });
-  add({ id: 'h-learn2', sectionId: 2, letters: B2, game: 'harakat-learn', emoji: '🎵',
-    title: 'Meer harakaat', titleTr: 'Daha fazla', description: 'Oefen op nieuwe letters', descriptionTr: 'Yeni harflerde' });
-  add({ id: 'h-quiz', sectionId: 2, letters: LETTERS, game: 'harakat-quiz', emoji: '🎯',
-    title: 'Harakat Quiz', titleTr: 'Hareke Testi', description: 'Welke harakat hoor je?', descriptionTr: 'Hangi harekeyi duyuyorsun?' });
+  // ── Section 2 · Harakaat (fatha, kasra, damma) ──
+  // Split the 28 letters into 5-letter buckets so both learn (5 × 3 = 15
+  // combos) and quiz stages stay ≤15 questions each, and the six quiz stages
+  // together cover every letter × harakat combo (~84 combos, no stage over
+  // 15 questions).
+  const HB: ArabicLetter[][] = [
+    LETTERS.slice(0, 5),
+    LETTERS.slice(5, 10),
+    LETTERS.slice(10, 15),
+    LETTERS.slice(15, 20),
+    LETTERS.slice(20, 25),
+    LETTERS.slice(25, 28),
+  ];
+  const bucketLabel = (i: number, tr = false) => {
+    const first = LETTERS.indexOf(HB[i][0]) + 1;
+    const last = first + HB[i].length - 1;
+    return tr ? `Harekeler ${first}-${last}` : `Harakaat ${first}-${last}`;
+  };
+  HB.forEach((bucket, i) => {
+    add({ id: `h-learn-${i + 1}`, sectionId: 2, letters: bucket, game: 'harakat-learn', emoji: '🎵',
+      title: `Leer · ${bucketLabel(i)}`, titleTr: `Öğren · ${bucketLabel(i, true)}`,
+      description: 'Fatha, kasra, damma', descriptionTr: 'Üstün, esre, ötre' });
+    add({ id: `h-quiz-${i + 1}`, sectionId: 2, letters: bucket, game: 'harakat-quiz', emoji: '🎯',
+      title: `Quiz · ${bucketLabel(i)}`, titleTr: `Test · ${bucketLabel(i, true)}`,
+      description: 'Welke harakat hoor je?', descriptionTr: 'Hangi harekeyi duyuyorsun?' });
+    // Break the harakat section's rhythm with a balloon round on
+    // every other bucket — same letters, target audio is a plain letter so it
+    // fits the balloon-pop mechanics without needing a harakat variant of the
+    // game.
+    if (i % 2 === 1) {
+      add({ id: `h-pop-${i + 1}`, sectionId: 2, letters: bucket, game: 'balloon-pop', emoji: '🎈',
+        title: `Ballonnen · ${bucketLabel(i)}`, titleTr: `Balonlar · ${bucketLabel(i, true)}`,
+        description: 'Pop de juiste ballon!', descriptionTr: 'Doğru balonu patlat!' });
+    }
+  });
+  // Closing mixed quiz drawn from all letters, still capped at 15 questions
+  // by HarakatQuizGame's internal cap.
+  add({ id: 'h-quiz-mix', sectionId: 2, letters: LETTERS, game: 'harakat-quiz', emoji: '🏁',
+    title: 'Alle harakaat', titleTr: 'Tüm harekeler',
+    description: 'Alles door elkaar', descriptionTr: 'Hepsi karışık' });
 
   // ── Section 3 · Cezm (sukoon), shadda & tanwin ──
   add({ id: 'c-sukoon-l', sectionId: 3, letters: B1, game: 'sign-learn', signs: [SUKOON], emoji: '⚪',
@@ -1845,7 +1879,7 @@ function WorldMap({ progress, onSelectStage, lang }: {
 // ─── Stage Wrapper ────────────────────────────────────────────────────────────
 
 const GAME_INTROS: Record<GameType, { nl: { title: string; body: string }; tr: { title: string; body: string } }> = {
-  'learn':           { nl: { title: 'Zie & hoor',     body: 'Tik op de letter om het geluid te horen. Ga door met de pijl.' }, tr: { title: 'Gör & duy',    body: 'Sesi duymak için harfe dokun. İleri okla devam et.' } },
+  'learn':           { nl: { title: 'Kijk en luister', body: 'Tik op de letter om het geluid te horen. Ga door met de pijl.' }, tr: { title: 'Bak ve dinle', body: 'Sesi duymak için harfe dokun. İleri okla devam et.' } },
   'listen-pick':     { nl: { title: 'Luister & kies', body: 'Je hoort een letter. Tik op de juiste letter tussen de vier.' }, tr: { title: 'Dinle & seç',   body: 'Bir harf duyacaksın. Doğru harfe dokun.' } },
   'name-match':      { nl: { title: 'Naam quiz',      body: 'Je ziet een letter. Kies de juiste naam.' },                    tr: { title: 'İsim testi',   body: 'Harfi göreceksin. Doğru ismi seç.' } },
   'review':          { nl: { title: 'Herhaling',      body: 'Kies de juiste naam bij de letter.' },                          tr: { title: 'Tekrar',       body: 'Harfin doğru ismini seç.' } },
@@ -1896,10 +1930,12 @@ function StageView({ stageId, progress, onComplete, onBack, onNext, lang }: {
 
   const handleComplete = (stars: number) => {
     setEarnedStars(stars);
-    setShowConfetti(true);
+    if (stars > 0) {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 3000);
+    }
     setDone(true);
     onComplete(stageId, stars);
-    setTimeout(() => setShowConfetti(false), 3000);
   };
 
   const letters = stage.letters;
@@ -1940,22 +1976,42 @@ function StageView({ stageId, progress, onComplete, onBack, onNext, lang }: {
         <GameIntro game={stage.game} lang={lang} onStart={() => setShowIntro(false)} />
       ) : done ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-6 p-6">
-          <div className="text-8xl animate-bounce">{earnedStars === 3 ? '🏆' : earnedStars === 2 ? '🥈' : '🥉'}</div>
-          <h2 className="text-white text-3xl font-bold">{tr('congrats', lang)}</h2>
-          <Stars count={earnedStars} />
-          <p className="text-white/80 text-center">
-            {earnedStars === 3 ? tr('perfect', lang) : earnedStars === 2 ? tr('good', lang) : tr('tryAgain', lang)}
-          </p>
-          <div className="flex gap-4 mt-4">
-            <button onClick={() => { setDone(false); setShowConfetti(false); setShowIntro(true); }}
-              className="px-8 py-4 rounded-2xl bg-white/20 text-white font-bold text-lg hover:bg-white/30 transition">
-              {tr('retry', lang)}
-            </button>
-            <button onClick={onNext}
-              className="px-10 py-4 rounded-2xl bg-white text-emerald-700 font-bold text-xl shadow-lg hover:bg-emerald-50 transition">
-              {tr('nextLevel', lang)}
-            </button>
-          </div>
+          {earnedStars === 0 ? (
+            <>
+              <div className="text-8xl">💔</div>
+              <h2 className="text-white text-3xl font-bold">
+                {lang === 'tr' ? 'Tekrar dene!' : 'Probeer opnieuw!'}
+              </h2>
+              <p className="text-white/80 text-center max-w-xs">
+                {lang === 'tr'
+                  ? '3 hata yaptın. Bu seviyeyi geçmek için bir kez daha dene.'
+                  : 'Je hebt 3 keer fout gehad. Speel dit level nog een keer om te winnen.'}
+              </p>
+              <button onClick={() => { setDone(false); setShowConfetti(false); setShowIntro(true); }}
+                className="px-10 py-4 rounded-2xl bg-white text-emerald-700 font-bold text-xl shadow-lg hover:bg-emerald-50 transition">
+                {tr('retry', lang)}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-8xl animate-bounce">{earnedStars === 3 ? '🏆' : earnedStars === 2 ? '🥈' : '🥉'}</div>
+              <h2 className="text-white text-3xl font-bold">{tr('congrats', lang)}</h2>
+              <Stars count={earnedStars} />
+              <p className="text-white/80 text-center">
+                {earnedStars === 3 ? tr('perfect', lang) : earnedStars === 2 ? tr('good', lang) : tr('tryAgain', lang)}
+              </p>
+              <div className="flex gap-4 mt-4">
+                <button onClick={() => { setDone(false); setShowConfetti(false); setShowIntro(true); }}
+                  className="px-8 py-4 rounded-2xl bg-white/20 text-white font-bold text-lg hover:bg-white/30 transition">
+                  {tr('retry', lang)}
+                </button>
+                <button onClick={onNext}
+                  className="px-10 py-4 rounded-2xl bg-white text-emerald-700 font-bold text-xl shadow-lg hover:bg-emerald-50 transition">
+                  {tr('nextLevel', lang)}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
