@@ -747,7 +747,7 @@ function HarakatLearnGame({ letters, onComplete }: {
       <button onClick={tap}
         className="w-52 h-52 rounded-3xl bg-white shadow-2xl flex flex-col items-center justify-center pb-16 hover:scale-105 active:scale-95 transition-all duration-150 relative">
         <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 76, lineHeight: 1.35 }}>
-          {harakatIdx === 0 ? `${letter.arabic}َ` : harakatIdx === 1 ? `${letter.arabic}ُ` : `${letter.arabic}ِ`}
+          {`${letter.arabic}${harakat.symbol}`}
         </span>
         <span className={SPEAKER_BADGE}>🔊</span>
       </button>
@@ -1040,6 +1040,179 @@ function BalloonPopGame({ letters, onComplete }: {
   );
 }
 
+// ─── Game: Balloon Pop (harakat) ─────────────────────────────────────────────
+// Same mechanics as BalloonPopGame, but every balloon carries a letter marked
+// with a harakat and the target audio is a letter+harakat pair, so the harakat
+// section gets an action-style stage instead of only quiz rounds.
+
+type HarakatCombo = { id: string; letter: ArabicLetter; harakat: typeof HARAKATS[0] };
+
+function HarakatBalloonPopGame({ letters, onComplete }: {
+  letters: ArabicLetter[]; onComplete: (stars: number) => void;
+}) {
+  const play = useAudio();
+  const allCombos: HarakatCombo[] = letters.flatMap(l =>
+    HARAKATS.map(h => ({ id: `${l.id}_${h.id}`, letter: l, harakat: h }))
+  );
+  const [queue] = useState<HarakatCombo[]>(() => shuffle(allCombos).slice(0, 8));
+  const [idx, setIdx] = useState(0);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [frozen, setFrozen] = useState(false);
+  const frameRef = useRef<number>(0);
+  const scoreRef = useRef(0);
+  const livesRef = useRef(3);
+  scoreRef.current = score;
+  livesRef.current = lives;
+
+  type Balloon = { id: string; combo: HarakatCombo; x: number; speed: number; startTime: number; popped: boolean; color: string };
+  const [balloons, setBalloons] = useState<Balloon[]>([]);
+  const [, setTick] = useState(0);
+
+  const target = queue[idx];
+  const starsFor = (s: number) => {
+    const pct = s / queue.length;
+    return pct >= 0.9 ? 3 : pct >= 0.6 ? 2 : 1;
+  };
+  const advance = () => {
+    if (idx < queue.length - 1) setIdx(i => i + 1);
+    else onComplete(starsFor(scoreRef.current));
+  };
+
+  useEffect(() => {
+    if (!target) return;
+    setFrozen(false);
+    // Distractors: same letter with the other 2 harakats + 2 different-letter
+    // combos, so the child really has to attend to both letter and harakat.
+    const sameLetter = HARAKATS
+      .filter(h => h.id !== target.harakat.id)
+      .map(h => ({ id: `${target.letter.id}_${h.id}`, letter: target.letter, harakat: h } as HarakatCombo));
+    const otherPool = allCombos.filter(c => c.letter.id !== target.letter.id);
+    const otherCombos = pick(otherPool, 2);
+    const all = shuffle([target, ...sameLetter, ...otherCombos]);
+    const now = Date.now();
+    setBalloons(all.map((combo, i) => ({
+      id: `${combo.id}-${now}-${i}`,
+      combo,
+      x: 10 + i * 19 + Math.random() * 4,
+      speed: 4 + Math.random() * 2,
+      startTime: now + i * 500,
+      popped: false,
+      color: BALLOON_COLORS[i % BALLOON_COLORS.length],
+    })));
+    play(audioPath(target.letter.id, target.harakat.id));
+  }, [idx, target]);
+
+  const getY = (b: Balloon) => {
+    if (b.popped) return -20;
+    const elapsed = (Date.now() - b.startTime) / 1000;
+    if (elapsed < 0) return -20;
+    return elapsed * b.speed;
+  };
+
+  const loseLife = (msg: string, thenAdvance: boolean) => {
+    const remaining = livesRef.current - 1;
+    setLives(remaining);
+    setFeedback(msg);
+    if (remaining <= 0) { setTimeout(() => onComplete(0), 600); return; }
+    setTimeout(() => {
+      setFeedback(null);
+      if (thenAdvance) advance();
+    }, thenAdvance ? 900 : 600);
+  };
+
+  useEffect(() => {
+    if (frozen || balloons.length === 0) return;
+    let active = true;
+    const animate = () => {
+      if (!active) return;
+      const targetBalloon = balloons.find(b => !b.popped && b.combo.id === target?.id);
+      if (targetBalloon && getY(targetBalloon) > 110) {
+        setFrozen(true);
+        setBalloons(prev => prev.map(b => ({ ...b, popped: true })));
+        loseLife('💨 Ontsnapt!', true);
+        return;
+      }
+      setTick(t => t + 1);
+      frameRef.current = requestAnimationFrame(animate);
+    };
+    frameRef.current = requestAnimationFrame(animate);
+    return () => { active = false; cancelAnimationFrame(frameRef.current); };
+  }, [frozen, balloons, target]);
+
+  const popBalloon = (balloonId: string, combo: HarakatCombo) => {
+    if (!target || frozen) return;
+    setBalloons(prev => prev.map(b => b.id === balloonId ? { ...b, popped: true } : b));
+    if (combo.id === target.id) {
+      setScore(scoreRef.current + 1);
+      setFeedback('🎉 Pop!');
+      setFrozen(true);
+      setTimeout(() => { setFeedback(null); advance(); }, 700);
+    } else {
+      loseLife('❌ Fout!', false);
+      play(audioPath(target.letter.id, target.harakat.id));
+    }
+  };
+
+  if (!target) return null;
+
+  return (
+    <div className="flex flex-col items-center gap-3 p-4 h-full">
+      <div className="flex justify-between w-full items-center">
+        <Hearts lives={lives} />
+        <span className="text-white font-bold text-lg">🎈 {score}/{queue.length}</span>
+      </div>
+
+      <button onClick={() => play(audioPath(target.letter.id, target.harakat.id))}
+        className="px-6 py-3 rounded-full bg-white/20 border-2 border-white/40 text-white font-bold text-lg flex items-center gap-2 hover:bg-white/30 active:scale-95 transition">
+        🔊 Luister nogmaals
+      </button>
+
+      <p className="text-white text-lg">
+        Pop de ballon: <strong>{target.letter.nameNl} + {target.harakat.nameNl}</strong>
+      </p>
+
+      <div className="relative w-full flex-1 min-h-[70vh] rounded-3xl overflow-hidden bg-gradient-to-b from-sky-300 via-sky-200 to-sky-100">
+        <div className="absolute top-4 right-6 text-6xl select-none pointer-events-none">☀️</div>
+        <div className="absolute top-10 left-8 text-4xl opacity-80 select-none pointer-events-none">☁️</div>
+        <div className="absolute top-24 right-24 text-3xl opacity-70 select-none pointer-events-none">☁️</div>
+        <div className="absolute top-40 left-1/3 text-4xl opacity-60 select-none pointer-events-none">☁️</div>
+        <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-emerald-500 to-emerald-400" />
+        {balloons.filter(b => !b.popped).map(b => {
+          const y = getY(b);
+          if (y > 105 || y < -15) return null;
+          return (
+          <button
+            key={b.id}
+            onClick={() => popBalloon(b.id, b.combo)}
+            className="absolute hover:scale-110 active:scale-90"
+            style={{ left: `${b.x}%`, bottom: `${y}%`, transform: 'translateX(-50%)' }}
+          >
+            <div className="relative flex flex-col items-center">
+              <div className="w-28 h-32 rounded-full flex items-center justify-center shadow-xl relative overflow-hidden"
+                style={{ background: b.color }}>
+                <div className="absolute top-3 left-5 w-6 h-9 bg-white/30 rounded-full rotate-[-20deg]" />
+                <span lang="ar" dir="rtl" style={{ fontFamily: ARABIC_FONT, fontSize: 58, color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.35)', lineHeight: 1.1 }}>
+                  {`${b.combo.letter.arabic}${b.combo.harakat.symbol}`}
+                </span>
+              </div>
+              <div className="w-0.5 h-8 bg-slate-600/50" />
+            </div>
+          </button>
+          );
+        })}
+
+        {feedback && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-4xl font-bold text-white drop-shadow-lg animate-bounce">{feedback}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Game: Falling Letters Catch ─────────────────────────────────────────────
 
 function FallingLettersGame({ letters, onComplete }: {
@@ -1296,12 +1469,12 @@ function WhackAMoleGame({ letters, onComplete }: {
     setRound(nextRound);
   }, [letters, buildHoles, play]);
 
-  // Every 3.5s reshuffle the 6 letters' positions so the player has to keep
+  // Every 4.5s reshuffle the 6 letters' positions so the player has to keep
   // tracking the target's sound rather than pointing at a fixed hole.
   useEffect(() => {
     shuffleRef.current = setInterval(() => {
       setHoles(prev => shuffle(prev));
-    }, 3500);
+    }, 4500);
     return () => clearInterval(shuffleRef.current!);
   }, [targetLetter]);
 
@@ -1687,7 +1860,7 @@ function FormReadGame({ letters, onComplete, lang }: {
   );
 }
 
-type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole' | 'review' | 'sign-learn' | 'sign-read' | 'form-learn' | 'form-read';
+type GameType = 'learn' | 'listen-pick' | 'name-match' | 'drag-sort' | 'memory' | 'harakat-learn' | 'harakat-quiz' | 'harakat-balloon-pop' | 'balloon-pop' | 'falling-letters' | 'whack-a-mole' | 'review' | 'sign-learn' | 'sign-read' | 'form-learn' | 'form-read';
 
 interface Stage {
   id: string;
@@ -1777,9 +1950,9 @@ function buildStages(): Stage[] {
     // fits the balloon-pop mechanics without needing a harakat variant of the
     // game.
     if (i % 2 === 1) {
-      add({ id: `h-pop-${i + 1}`, sectionId: 2, letters: bucket, game: 'balloon-pop', emoji: '🎈',
+      add({ id: `h-pop-${i + 1}`, sectionId: 2, letters: bucket, game: 'harakat-balloon-pop', emoji: '🎈',
         title: `Ballonnen · ${bucketLabel(i)}`, titleTr: `Balonlar · ${bucketLabel(i, true)}`,
-        description: 'Pop de juiste ballon!', descriptionTr: 'Doğru balonu patlat!' });
+        description: 'Pop de letter met de juiste harakat!', descriptionTr: 'Doğru harekeli harfe dokun!' });
     }
   });
   // Closing mixed quiz drawn from all letters, still capped at 15 questions
@@ -1888,6 +2061,7 @@ const GAME_INTROS: Record<GameType, { nl: { title: string; body: string }; tr: {
   'harakat-learn':   { nl: { title: 'Harakaat leren', body: 'Luister naar de letter met fatha, damma of kasra.' },           tr: { title: 'Hareke öğren', body: 'Üstün, ötre, esre ile harfi dinle.' } },
   'harakat-quiz':    { nl: { title: 'Harakat quiz',   body: 'Welke harakat hoor je? Tik op het juiste antwoord.' },          tr: { title: 'Hareke testi', body: 'Hangi harekeyi duyuyorsun? Doğru cevaba dokun.' } },
   'balloon-pop':     { nl: { title: 'Ballonnen!',     body: 'Tik op de ballon met de letter die je hoort. Wees snel!' },     tr: { title: 'Balonlar!',    body: 'Duyduğun harfli balona dokun. Çabuk ol!' } },
+  'harakat-balloon-pop': { nl: { title: 'Ballonnen met harakat!', body: 'Je hoort een letter met harakat. Pop de ballon met dezelfde letter én harakat.' }, tr: { title: 'Harekeli balonlar!', body: 'Harekeli bir harf duyacaksın. Aynı harf ve hareke olan balonu patlat.' } },
   'falling-letters': { nl: { title: 'Vang de letter', body: 'Beweeg de mand met je vinger of muis en vang de juiste letter.' }, tr: { title: 'Harfi yakala', body: 'Sepeti hareket ettir ve doğru harfi yakala.' } },
   'whack-a-mole':    { nl: { title: 'Sla de mol',     body: 'Sla op de letter die je hoort — pas op voor foute letters!' },  tr: { title: 'Köstebeğe vur',body: 'Duyduğun harfe vur — yanlış harflere dikkat!' } },
   'sign-learn':      { nl: { title: 'Tekens leren',   body: 'Bekijk en luister naar de letter met het teken.' },             tr: { title: 'İşaretleri öğren', body: 'Harfi işaretle birlikte gör ve dinle.' } },
@@ -1950,6 +2124,7 @@ function StageView({ stageId, progress, onComplete, onBack, onNext, lang }: {
     if (stage.game === 'harakat-learn') return <HarakatLearnGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'harakat-quiz') return <HarakatQuizGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'balloon-pop') return <BalloonPopGame letters={letters} onComplete={handleComplete} />;
+    if (stage.game === 'harakat-balloon-pop') return <HarakatBalloonPopGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'falling-letters') return <FallingLettersGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'whack-a-mole') return <WhackAMoleGame letters={letters} onComplete={handleComplete} />;
     if (stage.game === 'sign-learn') return <SignLearnGame letters={letters} signs={signs} onComplete={handleComplete} lang={lang} />;
