@@ -346,7 +346,7 @@ export default function InschrijvingPage() {
             className="flex items-center gap-3 cursor-pointer"
           >
             <img src={faviconUrl} alt="Logo" className="h-9 w-9 object-contain" />
-            <span className="font-bold text-emerald-800 text-lg">Ilim Yolu</span>
+            <span className="font-bold text-emerald-800 text-lg">Rahman Eğitim</span>
           </button>
           <div className="flex items-center gap-2">
             <button

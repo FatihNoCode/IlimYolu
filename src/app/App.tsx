@@ -31,6 +31,7 @@ interface User {
   name: string;
   phone?: string;
   role: 'parent' | 'teacher' | 'admin' | 'superadmin';
+  status?: 'pending' | 'approved';
   lastCheckIn?: string;
   signature?: string | null;
 }
@@ -51,6 +52,49 @@ export const useApp = () => {
   if (!context) throw new Error('useApp must be used within AppProvider');
   return context;
 };
+
+function PendingApprovalScreen({ email, language, onSignOut }: { email: string; language: Language; onSignOut: () => void }) {
+  return (
+    <div className="relative size-full flex items-center justify-center p-4">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-24 -left-20 w-72 h-72 bg-emerald-300/30 rounded-full blur-3xl" />
+        <div className="absolute -bottom-24 -right-16 w-80 h-80 bg-teal-300/30 rounded-full blur-3xl" />
+      </div>
+      <div className="relative w-full max-w-md bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl ring-1 ring-black/5 p-7 text-center">
+        <img src={faviconUrl} alt="Rahman Eğitim" className="h-14 w-14 object-contain mx-auto mb-3" />
+        <h1 className="text-xl font-bold text-gray-800 mb-4">Rahman Eğitim</h1>
+        <div className="bg-emerald-100 rounded-full p-4 inline-flex mb-3">
+          <svg className="h-8 w-8 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8v4l3 2M12 22a10 10 0 100-20 10 10 0 000 20z"/></svg>
+        </div>
+        <p className="font-semibold text-gray-800 mb-1">
+          {language === 'tr' ? 'Onay bekleniyor' : 'In afwachting van goedkeuring'}
+        </p>
+        <p className="text-sm text-gray-500 mb-3">
+          {language === 'tr'
+            ? 'Kaydınız alındı. Tam işlevsellik, bir yönetici hesabınızı onayladıktan sonra kullanılabilir olacaktır.'
+            : 'Uw registratie is ontvangen. Volledige toegang komt beschikbaar zodra een beheerder uw account goedkeurt.'}
+        </p>
+        <p className="text-sm font-semibold text-emerald-700 mb-4 break-all">{email}</p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 text-left">
+          <p className="text-amber-800 text-sm font-semibold mb-0.5">
+            {language === 'tr' ? '📧 Bilgilendirme e-postası' : '📧 Bevestigingsmail'}
+          </p>
+          <p className="text-amber-700 text-xs">
+            {language === 'tr'
+              ? 'Yönetici hesabınızı onayladığında bir e-posta alacaksınız.'
+              : 'Zodra een beheerder uw account goedkeurt, ontvangt u een e-mail.'}
+          </p>
+        </div>
+        <button
+          onClick={onSignOut}
+          className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold py-2.5 rounded-xl transition text-sm"
+        >
+          {language === 'tr' ? 'Çıkış yap' : 'Uitloggen'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [language, setLanguage] = useState<Language>('nl');
@@ -116,7 +160,7 @@ export default function App() {
 
   useEffect(() => {
     // Set page title
-    document.title = 'Ilim Yolu';
+    document.title = 'Rahman Eğitim';
 
     // Set favicon
     let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
@@ -171,7 +215,21 @@ export default function App() {
     }
 
     checkSession();
-    return;
+
+    // OAuth redirects land back on the app with a session already established
+    // by supabase-js from the URL hash. Listen for SIGNED_IN so we fetch the
+    // profile (and auto-provision on first login) without a manual reload.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session && !user) {
+        markSessionStart();
+        checkSession();
+        // Clean the OAuth hash out of the URL so refresh doesn't re-trigger.
+        if (window.location.hash.includes('access_token')) {
+          window.history.replaceState({}, '', window.location.pathname + window.location.search);
+        }
+      }
+    });
+    return () => { sub.subscription.unsubscribe(); };
   }, []);
 
   const checkSession = async () => {
@@ -299,6 +357,12 @@ export default function App() {
               onLogin={handleLogin}
               language={language}
               setLanguage={setLanguage}
+            />
+          ) : user.status === 'pending' ? (
+            <PendingApprovalScreen
+              email={user.email}
+              language={language}
+              onSignOut={handleLogout}
             />
           ) : user.role === 'parent' ? (
             <ParentDashboard onLogout={handleLogout} />

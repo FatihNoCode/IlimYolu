@@ -131,7 +131,7 @@ export default function ImportView({ language, apiRequest, onDataChange }: Impor
     ws['!cols'] = headers.map(() => ({ wch: 20 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Import');
-    XLSX.writeFile(wb, 'ilim-yolu-import-template.xlsx');
+    XLSX.writeFile(wb, 'rahman-egitim-import-template.xlsx');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

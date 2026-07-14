@@ -129,7 +129,7 @@ async function sendEmail(to: string, subject: string, html: string, attachments?
   }
   try {
     const payload: Record<string, unknown> = {
-      from: 'Ilim Yolu <info@ilimyolu.com>',
+      from: 'Rahman Eğitim <info@rahmanegitim.com>',
       to: [to],
       subject,
       html,
@@ -198,7 +198,7 @@ function buildIcsContent(dateStr: string, startTime: string, endTime: string, ti
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Ilim Yolu//Oudergesprek//NL',
+    'PRODID:-//Rahman Eğitim//Oudergesprek//NL',
     'CALSCALE:GREGORIAN',
     // METHOD:REQUEST turns the event into an invitation, so Apple Calendar /
     // Outlook show an "Accept / Maybe / Decline" prompt instead of a plain
@@ -211,7 +211,7 @@ function buildIcsContent(dateStr: string, startTime: string, endTime: string, ti
     `DTEND:${dtEnd}`,
     `SUMMARY:${title}`,
     `DESCRIPTION:${description}`,
-    'ORGANIZER;CN=Ilim Yolu:mailto:info@ilimyolu.com',
+    'ORGANIZER;CN=Rahman Eğitim:mailto:info@rahmanegitim.com',
   ];
   if (attendeeEmail) {
     lines.push(
@@ -338,7 +338,7 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
 
   return sendEmail(
     to,
-    `Bevestiging tijdslot oudergesprek | Veli Görüşmesi Onayı - Ilim Yolu`,
+    `Bevestiging tijdslot oudergesprek | Veli Görüşmesi Onayı - Rahman Eğitim`,
     emailWrapper('Oudergesprek bevestigd', `
       <p style="color:#374151;line-height:1.6">Beste ouder,</p>
       <p style="color:#374151;line-height:1.6">Het tijdslot voor <strong>${studentName}</strong> is bevestigd. Hieronder vindt u de details. De afspraak zit ook als bijlage (<strong>oudergesprek.ics</strong>) bij deze e-mail — open deze om de afspraak aan uw agenda toe te voegen.</p>
@@ -355,11 +355,11 @@ async function sendConferenceConfirmationEmail(to: string, session: any, slot: a
 function emailWrapper(titleNl: string, bodyHtml: string) {
   return `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
     <p style="color:#059669;font-size:13px;font-weight:600;margin:0 0 6px">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-    <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu${titleNl ? ' - ' + titleNl : ''}</h2>
+    <h2 style="color:#065f46;margin-bottom:16px">Rahman Eğitim${titleNl ? ' - ' + titleNl : ''}</h2>
     ${bodyHtml}
-    <p style="color:#374151;line-height:1.6;margin-top:24px">Selamün Aleyküm ve Rahmetullah | Wassalamu alaikum wa rahmatullah,<br>Ilim Yolu</p>
+    <p style="color:#374151;line-height:1.6;margin-top:24px">Selamün Aleyküm ve Rahmetullah | Wassalamu alaikum wa rahmatullah,<br>Rahman Eğitim</p>
     <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
-    <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Ilim Yolu leerlingvolgsysteem.</p>
+    <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Rahman Eğitim leerlingvolgsysteem.</p>
   </div>`;
 }
 
@@ -526,17 +526,17 @@ app.post("/make-server-6679cacd/signup", async (c) => {
     // confirms they can log in.
     await sendEmail(
       email,
-      'Registratie ontvangen | Kaydınız alındı - Ilim Yolu',
+      'Registratie ontvangen | Kaydınız alındı - Rahman Eğitim',
       emailWrapper('Registratie ontvangen', `
         <p style="color:#374151;line-height:1.6">Beste ${name},</p>
-        <p style="color:#374151;line-height:1.6">Bedankt voor uw registratie bij het Ilim Yolu leerlingvolgsysteem.</p>
+        <p style="color:#374151;line-height:1.6">Bedankt voor uw registratie bij het Rahman Eğitim leerlingvolgsysteem.</p>
         <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
           <p style="color:#92400e;margin:0;line-height:1.6"><strong>Let op:</strong> uw registratie geeft u nog geen directe toegang tot het systeem. Een beheerder moet uw account eerst goedkeuren en de juiste rol toekennen. Zodra dit is gebeurd, ontvangt u een e-mail en kunt u inloggen.</p>
         </div>
         <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
         <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
         <p style="color:#374151;line-height:1.6">Sayın ${name},</p>
-        <p style="color:#374151;line-height:1.6">Ilim Yolu öğrenci takip sistemine kaydolduğunuz için teşekkür ederiz.</p>
+        <p style="color:#374151;line-height:1.6">Rahman Eğitim öğrenci takip sistemine kaydolduğunuz için teşekkür ederiz.</p>
         <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
           <p style="color:#92400e;margin:0;line-height:1.6"><strong>Önemli:</strong> kaydınız size sisteme hemen erişim vermez. Bir yönetici önce hesabınızı onaylamalı ve size uygun rolü atamalıdır. Bu işlem tamamlandığında bir e-posta alacak ve giriş yapabileceksiniz.</p>
         </div>
@@ -605,7 +605,56 @@ app.get("/make-server-6679cacd/session", async (c) => {
       return c.json({ error }, 401);
     }
 
-    const userData = await getUserData(user.id);
+    let userData = await getUserData(user.id);
+
+    // OAuth first login: Supabase has just created the auth user, but no KV
+    // profile exists yet. Auto-provision as `pending` (same policy as the
+    // password self-signup flow) so an admin can approve and assign a real
+    // role.
+    if (!userData) {
+      const meta: any = user.user_metadata || {};
+      const name = (meta.full_name || meta.name || `${meta.given_name || ''} ${meta.family_name || ''}`.trim() || user.email || '').trim();
+      userData = {
+        id: user.id,
+        email: user.email,
+        name,
+        phone: meta.phone || '',
+        role: 'parent',
+        status: 'pending',
+        hasAccount: true,
+        lastCheckIn: null,
+        createdAt: new Date().toISOString(),
+      };
+      await kv.set(`user:${user.id}`, userData);
+      await kv.set(`parent_children:${user.id}`, []);
+
+      // Notify the user that registration is received but pending approval.
+      if (user.email) {
+        try {
+          await sendEmail(
+            user.email,
+            'Registratie ontvangen | Kaydınız alındı - Rahman Eğitim',
+            emailWrapper('Registratie ontvangen', `
+              <p style="color:#374151;line-height:1.6">Beste ${name},</p>
+              <p style="color:#374151;line-height:1.6">Bedankt voor uw registratie bij Rahman Eğitim.</p>
+              <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
+                <p style="color:#92400e;margin:0;line-height:1.6"><strong>Let op:</strong> een beheerder moet uw account eerst goedkeuren. Zodra dit is gebeurd, ontvangt u een e-mail en heeft u volledige toegang.</p>
+              </div>
+              <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
+              <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
+              <p style="color:#374151;line-height:1.6">Sayın ${name},</p>
+              <p style="color:#374151;line-height:1.6">Rahman Eğitim'e kaydolduğunuz için teşekkür ederiz.</p>
+              <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin:16px 0">
+                <p style="color:#92400e;margin:0;line-height:1.6"><strong>Önemli:</strong> önce bir yönetici hesabınızı onaylamalıdır. Onaylandığında bir e-posta alacak ve tam erişime sahip olacaksınız.</p>
+              </div>
+            `)
+          );
+        } catch (mailErr) {
+          console.log('OAuth signup email failed:', mailErr);
+        }
+      }
+    }
+
     return c.json({ user: { ...userData, id: user.id } });
   } catch (err) {
     console.log('Session error:', err);
@@ -2076,15 +2125,15 @@ app.post("/make-server-6679cacd/users/:userId/approve", async (c) => {
     if (target.email) {
       await sendEmail(
         target.email,
-        'Uw account is goedgekeurd | Hesabınız onaylandı - Ilim Yolu',
+        'Uw account is goedgekeurd | Hesabınız onaylandı - Rahman Eğitim',
         emailWrapper('Account goedgekeurd', `
           <p style="color:#374151;line-height:1.6">Beste ${target.name || ''},</p>
-          <p style="color:#374151;line-height:1.6">Goed nieuws! Uw account voor het Ilim Yolu leerlingvolgsysteem is goedgekeurd. U kunt nu inloggen met uw e-mailadres en wachtwoord.</p>
+          <p style="color:#374151;line-height:1.6">Goed nieuws! Uw account voor het Rahman Eğitim leerlingvolgsysteem is goedgekeurd. U kunt nu inloggen met uw e-mailadres en wachtwoord.</p>
           <p style="margin:24px 0"><a href="https://ilimyolu.com" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Inloggen</a></p>
           <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
           <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
           <p style="color:#374151;line-height:1.6">Sayın ${target.name || ''},</p>
-          <p style="color:#374151;line-height:1.6">Güzel haber! Ilim Yolu öğrenci takip sistemi hesabınız onaylandı. Artık e-posta adresiniz ve şifrenizle giriş yapabilirsiniz.</p>
+          <p style="color:#374151;line-height:1.6">Güzel haber! Rahman Eğitim öğrenci takip sistemi hesabınız onaylandı. Artık e-posta adresiniz ve şifrenizle giriş yapabilirsiniz.</p>
           <p style="margin:24px 0"><a href="https://ilimyolu.com" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Giriş yap</a></p>
         `)
       );
@@ -2137,14 +2186,14 @@ app.post("/make-server-6679cacd/users/:userId/reject", async (c) => {
     if (target.email) {
       await sendEmail(
         target.email,
-        'Registratie afgewezen | Kayıt reddedildi - Ilim Yolu',
+        'Registratie afgewezen | Kayıt reddedildi - Rahman Eğitim',
         emailWrapper('Registratie afgewezen', `
           <p style="color:#374151;line-height:1.6">Beste ${target.name || ''},</p>
-          <p style="color:#374151;line-height:1.6">Uw registratie voor het Ilim Yolu leerlingvolgsysteem is helaas niet goedgekeurd. Neem bij vragen contact op met de beheerder van uw school.</p>
+          <p style="color:#374151;line-height:1.6">Uw registratie voor het Rahman Eğitim leerlingvolgsysteem is helaas niet goedgekeurd. Neem bij vragen contact op met de beheerder van uw school.</p>
           <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
           <h3 style="color:#065f46;margin-bottom:8px">Türkçe</h3>
           <p style="color:#374151;line-height:1.6">Sayın ${target.name || ''},</p>
-          <p style="color:#374151;line-height:1.6">Ilim Yolu öğrenci takip sistemi kaydınız maalesef onaylanmadı. Sorularınız için lütfen okulunuzun yöneticisiyle iletişime geçin.</p>
+          <p style="color:#374151;line-height:1.6">Rahman Eğitim öğrenci takip sistemi kaydınız maalesef onaylanmadı. Sorularınız için lütfen okulunuzun yöneticisiyle iletişime geçin.</p>
         `)
       );
     }
@@ -2384,7 +2433,7 @@ app.post("/make-server-6679cacd/attendance", async (c) => {
 
       await sendEmail(
         parentData.email,
-        `Afwezigheid gemeld door leerkracht | Devamsızlık Bildirimi - Ilim Yolu`,
+        `Afwezigheid gemeld door leerkracht | Devamsızlık Bildirimi - Rahman Eğitim`,
         emailWrapper('Afwezigheid', `
           <p style="color:#374151;line-height:1.6">Beste ouder,</p>
           <p style="color:#374151;line-height:1.6"><strong>${student.name || ''}</strong> is op <strong>${date}</strong> afwezig geregistreerd op de les, zonder dat u dit vooraf had gemeld.</p>
@@ -4352,7 +4401,7 @@ app.post("/make-server-6679cacd/inschrijvingen", async (c) => {
 
     await sendEmail(
       contactEmail,
-      'Inschrijving ontvangen | Kayıt Alındı - Ilim Yolu',
+      'Inschrijving ontvangen | Kayıt Alındı - Rahman Eğitim',
       emailWrapper('Inschrijving ontvangen', `
         <p style="color:#374151;line-height:1.6">Beste ${contactNaam},</p>
         <p style="color:#374151;line-height:1.6">Wij hebben de inschrijving van <strong>${voornaam} ${achternaam}</strong> in goede orde ontvangen. Wij nemen de aanvraag in behandeling en informeren u zodra hier een update in is.</p>
@@ -4421,7 +4470,7 @@ app.post("/make-server-6679cacd/communication/send", async (c) => {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: 'Ilim Yolu <info@ilimyolu.com>',
+            from: 'Rahman Eğitim <info@rahmanegitim.com>',
             to: [r.email],
             subject,
             html,
@@ -4480,7 +4529,7 @@ app.get("/make-server-6679cacd/communication/sent", async (c) => {
 });
 
 // ============= SUPERADMIN INBOX (inbound email) =============
-// Resend delivers inbound mail (e.g. replies to info@ilimyolu.com or a
+// Resend delivers inbound mail (e.g. replies to info@rahmanegitim.com or a
 // dedicated inbox@ address) to this webhook once inbound routing + a
 // receiving domain are configured in the Resend dashboard. Stored globally
 // (not school-scoped) since only the superadmin can read this mailbox.
@@ -4592,14 +4641,14 @@ app.post("/make-server-6679cacd/send-reminder", async (c) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'Ilim Yolu <info@ilimyolu.com>',
+            from: 'Rahman Eğitim <info@rahmanegitim.com>',
             to: [teacherData.email],
             subject,
             html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-              <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu</h2>
+              <h2 style="color:#065f46;margin-bottom:16px">Rahman Eğitim</h2>
               <div style="white-space:pre-wrap;color:#374151;line-height:1.6">${message.replace(/\n/g, '<br>')}</div>
               <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
-              <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Ilim Yolu leerlingvolgsysteem.</p>
+              <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Rahman Eğitim leerlingvolgsysteem.</p>
             </div>`,
           }),
         });
@@ -4755,7 +4804,7 @@ app.patch("/make-server-6679cacd/inschrijvingen/:id", async (c) => {
         : '';
       await sendEmail(
         rec.contactEmail,
-        `Update inschrijving ${rec.voornaam} ${rec.achternaam} | Kayıt Güncellemesi - Ilim Yolu`,
+        `Update inschrijving ${rec.voornaam} ${rec.achternaam} | Kayıt Güncellemesi - Rahman Eğitim`,
         emailWrapper('Status inschrijving bijgewerkt', `
           <p style="color:#374151;line-height:1.6">Beste ${rec.contactNaam},</p>
           <p style="color:#374151;line-height:1.6">De status van de inschrijving van <strong>${rec.voornaam} ${rec.achternaam}</strong> is bijgewerkt naar: <strong>${statusLabelsNl[status] || status}</strong>.</p>
@@ -5003,7 +5052,7 @@ app.post("/make-server-6679cacd/boekhouding/payments", async (c) => {
           if (parentData?.email) {
             await sendEmail(
               parentData.email,
-              `Schoolgeld volledig betaald | Okul Ücreti Tamamlandı - Ilim Yolu`,
+              `Schoolgeld volledig betaald | Okul Ücreti Tamamlandı - Rahman Eğitim`,
               emailWrapper('Betaling bevestigd', `
                 <p style="color:#374151;line-height:1.6">Beste ouder,</p>
                 <p style="color:#374151;line-height:1.6">Het schoolgeld voor <strong>${student.name || ''}</strong> is volledig voldaan. Bedankt voor uw betaling!</p>
@@ -5193,7 +5242,7 @@ app.post("/make-server-6679cacd/boekhouding/send-schoolgeld-reminders", async (c
       const rowsTr = children.map(ch => `<li style="color:#374151;line-height:1.8"><strong>${ch.name}</strong>: €${ch.owed} kalan tutar</li>`).join('');
       const ok = await sendEmail(
         email,
-        'Herinnering openstaand schoolgeld | Ödenmemiş Okul Ücreti Hatırlatması - Ilim Yolu',
+        'Herinnering openstaand schoolgeld | Ödenmemiş Okul Ücreti Hatırlatması - Rahman Eğitim',
         emailWrapper('Openstaand schoolgeld', `
           <p style="color:#374151;line-height:1.6">Beste ouder,</p>
           <p style="color:#374151;line-height:1.6">Dit is een vriendelijke herinnering dat er nog schoolgeld openstaat voor:</p>
@@ -5313,11 +5362,11 @@ app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from: 'Ilim Yolu <info@ilimyolu.com>',
+              from: 'Rahman Eğitim <info@rahmanegitim.com>',
               to: [parentData.email],
               subject: `Oudergesprek ${date} | Veli Görüşmesi`,
               html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-                <h2 style="color:#065f46;margin-bottom:16px">Ilim Yolu - Oudergesprek</h2>
+                <h2 style="color:#065f46;margin-bottom:16px">Rahman Eğitim - Oudergesprek</h2>
                 <p style="color:#374151;line-height:1.6">Beste ouder,</p>
                 <p style="color:#374151;line-height:1.6">Er is een oudergesprek ingepland op <strong>${date}</strong> voor klas <strong>${cls.name}</strong>.</p>
                 <p style="color:#374151;line-height:1.6">Tijdsloten zijn beschikbaar van <strong>${startTime}</strong> tot <strong>${lastSlotEnd}</strong> (${minutesPerSlot} minuten per gesprek).</p>
@@ -5331,7 +5380,7 @@ app.post("/make-server-6679cacd/oudergesprekken", async (c) => {
                 <p style="color:#374151;line-height:1.6">Zaman dilimi seçmek için veli portalına giriş yapın. <strong>İlk gelen, ilk alır!</strong></p>
                 <p style="margin:24px 0"><a href="${bookingLink}" style="background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Zaman dilimi seçin</a></p>
                 <hr style="margin:32px 0;border:none;border-top:1px solid #e5e7eb">
-                <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Ilim Yolu leerlingvolgsysteem.</p>
+                <p style="color:#9ca3af;font-size:12px">Dit bericht is verstuurd via het Rahman Eğitim leerlingvolgsysteem.</p>
               </div>`,
             }),
           });
@@ -5602,7 +5651,7 @@ app.post("/make-server-6679cacd/oudergesprekken/:id/remind-unbooked", async (c) 
 
       const ok = await sendEmail(
         parentData.email,
-        `Herinnering: kies uw tijdslot oudergesprek | Hatırlatma: Görüşme saatinizi seçin - Ilim Yolu`,
+        `Herinnering: kies uw tijdslot oudergesprek | Hatırlatma: Görüşme saatinizi seçin - Rahman Eğitim`,
         emailWrapper('Herinnering oudergesprek', `
           <p style="color:#374151;line-height:1.6">Beste ouder,</p>
           <p style="color:#374151;line-height:1.6">U heeft nog geen tijdslot gekozen voor het oudergesprek van <strong>${session.className}</strong> op <strong>${session.date}</strong>. Log in op het ouderportaal om een tijdslot te kiezen.</p>
@@ -5978,7 +6027,7 @@ app.post("/make-server-6679cacd/cron/tick", async (c) => {
             if (teacherData.email) {
               await sendEmail(
                 teacherData.email,
-                'Aanwezigheid nog niet ingevuld | Devamsızlık Henüz Girilmedi - Ilim Yolu',
+                'Aanwezigheid nog niet ingevuld | Devamsızlık Henüz Girilmedi - Rahman Eğitim',
                 emailWrapper('Aanwezigheid', `
                   <p style="color:#374151;line-height:1.6">Beste leerkracht,</p>
                   <p style="color:#374151;line-height:1.6">De les van <strong>${cls.name}</strong> loopt bijna af (of is voorbij) en de aanwezigheid van vandaag is nog niet ingevuld. Wilt u dit zo spoedig mogelijk doen?</p>
