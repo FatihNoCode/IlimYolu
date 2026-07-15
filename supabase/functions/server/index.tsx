@@ -9,11 +9,31 @@ const app = new Hono();
 // Enable logger
 app.use('*', logger(console.log));
 
-// Enable CORS for all routes and methods
+// Enable CORS. Rather than a blanket "*", we reflect only origins we actually
+// serve the app from (production domains + local dev). This is defense in
+// depth: the API is already bearer-token authenticated, but restricting the
+// allowed origin stops an unrelated website from silently driving these
+// endpoints with a signed-in user's token via a browser XHR. Non-browser
+// callers (curl, server-to-server webhooks) don't send an Origin and are
+// unaffected by CORS either way.
+const ALLOWED_ORIGINS = new Set([
+  "https://rahmanegitim.com",
+  "https://www.rahmanegitim.com",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+]);
+
 app.use(
   "/*",
   cors({
-    origin: "*",
+    origin: (origin) => {
+      // Requests with no Origin header (same-origin navigations, curl,
+      // webcal:// calendar fetches, webhooks) are allowed through — CORS only
+      // governs cross-origin browser XHR.
+      if (!origin) return origin;
+      return ALLOWED_ORIGINS.has(origin) ? origin : null;
+    },
     allowHeaders: ["Content-Type", "Authorization", "X-School-Id"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
