@@ -5133,7 +5133,28 @@ app.post("/make-server-6679cacd/boekhouding/students/bulk", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
     if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
     const { studentIds } = await c.req.json();
+
+    if (!Array.isArray(studentIds)) {
+      return c.json({ error: 'studentIds must be an array' }, 400);
+    }
+    // The loop below is one KV read per id, so an unbounded array is a cheap
+    // way to hammer the database.
+    if (studentIds.length > 500) {
+      return c.json({ error: 'Too many studentIds' }, 400);
+    }
+
+    // Same rule as GET /boekhouding/student/:studentId — without it this bulk
+    // variant is a way to read any student's financial record by id, which
+    // would make the check on the singular route pointless.
+    if (userData?.role === 'parent') {
+      const childrenIds: string[] = await kv.get(`parent_children:${user.id}`) || [];
+      if (studentIds.some((id: string) => !childrenIds.includes(id))) {
+        return c.json({ error: 'Not your child' }, 403);
+      }
+    }
+
     const records: Record<string, any> = {};
     for (const id of studentIds) {
       const rec = await kv.get(`boekhouding:student:${id}`);
