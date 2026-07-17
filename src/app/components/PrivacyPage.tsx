@@ -7,10 +7,10 @@ import logo from '../../imports/logo.svg';
 // derive — the legal entity behind the app and how people reach it. Everything
 // else in this policy describes what the system actually does.
 const CONTROLLER = {
-  legalName: '[Stichting/organisatie naam — vul in]',
-  address: '[Adres, postcode, plaats — vul in]',
-  email: 'privacy@rahmanegitim.com', // change if you use another address
-  kvk: '[KvK-nummer — vul in, indien van toepassing]',
+  legalName: 'Stichting Milli Görüş Amersfoort Rahman',
+  address: 'Juliëttestraat 44, Amersfoort',
+  email: 'onderwijs.rahman@gmail.com',
+  kvk: '41188879',
 };
 const LAST_UPDATED = '2026-07-17';
 // ─────────────────────────────────────────────────────────────────────────────
