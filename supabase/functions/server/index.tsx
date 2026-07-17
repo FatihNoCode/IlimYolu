@@ -2142,6 +2142,46 @@ app.put("/make-server-6679cacd/users/:userId", async (c) => {
 // Fully removes a user: deletes the auth.users record (so they can never
 // sign in again) plus all KV data and cross-references. Superadmin only —
 // this is a hard, unrecoverable delete unlike role changes above.
+// Erase a user and unwind what pointed at them. A child's attendance, grades
+// and diplomas belong to the school's records, not to the parent's account, so
+// students survive with parentId cleared rather than being deleted along with
+// the parent; same for a teacher's classes. Shared by the superadmin route and
+// the self-serve route below so both honour one deletion policy.
+async function purgeUser(targetUserId: string, target: any) {
+  if (target.role === 'parent') {
+    const childrenIds: string[] = await kv.get(`parent_children:${targetUserId}`) || [];
+    for (const studentId of childrenIds) {
+      const student = await kv.get(`student:${studentId}`);
+      if (student) await kv.set(`student:${studentId}`, { ...student, parentId: null, parentEmail: null });
+    }
+    await kv.del(`parent_children:${targetUserId}`);
+  } else if (target.role === 'teacher') {
+    const classIds: string[] = await kv.get(`teacher_classes:${targetUserId}`) || [];
+    for (const classId of classIds) {
+      const cls = await kv.get(`class:${classId}`);
+      if (cls) await kv.set(`class:${classId}`, { ...cls, teacherId: null });
+    }
+    await kv.del(`teacher_classes:${targetUserId}`);
+  }
+
+  await kv.del(`user:${targetUserId}`);
+
+  // Shadow parent records (from a public child signup, not yet a real login
+  // account) have no corresponding auth.users row to delete.
+  if (target.hasAccount !== false) {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { error: authError } = await supabase.auth.admin.deleteUser(targetUserId);
+    if (authError) {
+      console.log('Delete auth user error:', authError);
+      return authError.message;
+    }
+  }
+  return null;
+}
+
 app.delete("/make-server-6679cacd/users/:userId", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
@@ -2160,43 +2200,40 @@ app.delete("/make-server-6679cacd/users/:userId", async (c) => {
     const target = await kv.get(`user:${targetUserId}`);
     if (!target) return c.json({ error: 'User not found' }, 404);
 
-    // Clean up role-specific side effects so nothing points at a deleted user
-    if (target.role === 'parent') {
-      const childrenIds: string[] = await kv.get(`parent_children:${targetUserId}`) || [];
-      for (const studentId of childrenIds) {
-        const student = await kv.get(`student:${studentId}`);
-        if (student) await kv.set(`student:${studentId}`, { ...student, parentId: null, parentEmail: null });
-      }
-      await kv.del(`parent_children:${targetUserId}`);
-    } else if (target.role === 'teacher') {
-      const classIds: string[] = await kv.get(`teacher_classes:${targetUserId}`) || [];
-      for (const classId of classIds) {
-        const cls = await kv.get(`class:${classId}`);
-        if (cls) await kv.set(`class:${classId}`, { ...cls, teacherId: null });
-      }
-      await kv.del(`teacher_classes:${targetUserId}`);
-    }
-
-    await kv.del(`user:${targetUserId}`);
-
-    // Shadow parent records (from a public child signup, not yet a real login
-    // account) have no corresponding auth.users row to delete.
-    if (target.hasAccount !== false) {
-      const supabase = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-      );
-      const { error: authError } = await supabase.auth.admin.deleteUser(targetUserId);
-      if (authError) {
-        console.log('Delete auth user error:', authError);
-        return c.json({ error: authError.message }, 500);
-      }
-    }
+    const purgeError = await purgeUser(targetUserId, target);
+    if (purgeError) return c.json({ error: purgeError }, 500);
 
     return c.json({ success: true });
   } catch (err) {
     console.log('Delete user error:', err);
     return c.json({ error: 'Failed to delete user' }, 500);
+  }
+});
+
+// Self-serve account deletion. Google Play requires that an account the user
+// created be deletable by that user, so this must stay reachable without an
+// admin in the loop.
+app.delete("/make-server-6679cacd/me", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+
+    const target = await kv.get(`user:${user.id}`);
+    if (!target) return c.json({ error: 'User not found' }, 404);
+
+    // A superadmin deleting themselves could leave a school with nobody able to
+    // administer it, so that one still has to go through another superadmin.
+    if (target.role === 'superadmin') {
+      return c.json({ error: 'Superadmins cannot delete their own account. Ask another superadmin.' }, 403);
+    }
+
+    const purgeError = await purgeUser(user.id, target);
+    if (purgeError) return c.json({ error: purgeError }, 500);
+
+    return c.json({ success: true });
+  } catch (err) {
+    console.log('Self-delete error:', err);
+    return c.json({ error: 'Failed to delete account' }, 500);
   }
 });
 

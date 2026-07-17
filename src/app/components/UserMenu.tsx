@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User as UserIcon, LogOut, Bell, Pencil, X, Check } from 'lucide-react';
+import { User as UserIcon, LogOut, Bell, Pencil, X, Check, Trash2 } from 'lucide-react';
 import { useApp } from '../App';
 
 interface Notification {
@@ -37,6 +37,14 @@ const t = {
     replaceSignature: 'Handtekening vervangen',
     removeSignature: 'Verwijderen',
     signatureTooLarge: 'Afbeelding te groot. Kies een kleinere afbeelding.',
+    deleteAccount: 'Account verwijderen',
+    deleteTitle: 'Account definitief verwijderen',
+    deleteBody: 'Uw account en uw persoonlijke gegevens worden definitief verwijderd. U kunt niet meer inloggen. Dit kan niet ongedaan worden gemaakt.',
+    deleteKeepsNote: 'De gegevens van uw kinderen (aanwezigheid, cijfers, diploma’s) blijven bij de school en worden losgekoppeld van uw account.',
+    deleteConfirmHint: (word: string) => `Typ ${word} om te bevestigen.`,
+    deleteConfirmWord: 'VERWIJDER',
+    deleteFailed: 'Verwijderen mislukt. Probeer het opnieuw.',
+    deleting: 'Bezig met verwijderen…',
   },
   tr: {
     myInfo: 'Bilgilerim',
@@ -56,6 +64,14 @@ const t = {
     replaceSignature: 'İmzayı değiştir',
     removeSignature: 'Kaldır',
     signatureTooLarge: 'Resim çok büyük. Daha küçük bir resim seçin.',
+    deleteAccount: 'Hesabı sil',
+    deleteTitle: 'Hesabı kalıcı olarak sil',
+    deleteBody: 'Hesabınız ve kişisel bilgileriniz kalıcı olarak silinecek. Bir daha giriş yapamayacaksınız. Bu işlem geri alınamaz.',
+    deleteKeepsNote: 'Çocuklarınızın kayıtları (devam, notlar, diplomalar) okulda kalır ve hesabınızla bağlantısı kesilir.',
+    deleteConfirmHint: (word: string) => `Onaylamak için ${word} yazın.`,
+    deleteConfirmWord: 'SİL',
+    deleteFailed: 'Silme başarısız. Lütfen tekrar deneyin.',
+    deleting: 'Siliniyor…',
   },
 };
 
@@ -89,7 +105,10 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
   const { language, user, setUser, apiRequest } = useApp();
   const text = t[language];
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'menu' | 'profile' | 'notifications'>('menu');
+  const [view, setView] = useState<'menu' | 'profile' | 'notifications' | 'delete'>('menu');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [editName, setEditName] = useState(user?.name || '');
@@ -165,6 +184,21 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
       console.error('Error saving profile:', err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await apiRequest('/me', { method: 'DELETE' });
+      // The account is gone, so the session is worthless — drop straight to the
+      // login screen rather than letting the UI make doomed authed requests.
+      onLogout();
+    } catch (err) {
+      console.error('Error deleting account:', err);
+      setDeleteError(text.deleteFailed);
+      setDeleting(false);
     }
   };
 
@@ -251,6 +285,17 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
                   <LogOut className="h-4 w-4" />
                   {text.logout}
                 </button>
+                {/* A superadmin removing themselves could leave the school with
+                    no administrator, so that goes through another superadmin. */}
+                {user?.role !== 'superadmin' && (
+                  <button
+                    onClick={() => { setView('delete'); setDeleteConfirm(''); setDeleteError(''); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-red-50 text-sm text-gray-400 hover:text-red-600 transition"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {text.deleteAccount}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -319,6 +364,42 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
                   {saved ? (<><Check className="h-4 w-4" />{text.saved}</>) : text.save}
                 </button>
               </div>
+            </div>
+          )}
+
+          {view === 'delete' && (
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={() => setView('menu')} className="text-gray-400 hover:text-gray-600 text-xs font-medium">
+                  ← {text.back}
+                </button>
+                <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="font-semibold text-gray-800 text-sm mb-2">{text.deleteTitle}</p>
+              <p className="text-xs text-gray-500 mb-2">{text.deleteBody}</p>
+              {user?.role === 'parent' && (
+                <p className="text-xs text-gray-400 mb-3">{text.deleteKeepsNote}</p>
+              )}
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                {text.deleteConfirmHint(text.deleteConfirmWord)}
+              </label>
+              <input
+                type="text"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 mb-3"
+              />
+              {deleteError && <p className="text-xs text-red-600 mb-2">{deleteError}</p>}
+              <button
+                onClick={deleteAccount}
+                disabled={deleting || deleteConfirm.trim() !== text.deleteConfirmWord}
+                className="w-full flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? text.deleting : text.deleteAccount}
+              </button>
             </div>
           )}
 
