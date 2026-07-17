@@ -10,8 +10,15 @@ const svg = readFileSync(new URL('../src/imports/logo.svg', import.meta.url));
 const out = fileURLToPath(new URL('../src/imports/favicon.png', import.meta.url));
 
 const S = 256;
-const logo = await sharp(svg, { density: 400 })
-  .resize({ width: Math.round(S * 0.96), fit: 'inside' })
+
+// The SVG's own viewBox (912x752) has a lot of transparent margin around the
+// artwork — trimming it first means sizing by width also fills height,
+// instead of leaving a visible band of white top and bottom.
+const rendered = await sharp(svg, { density: 400 }).png().toBuffer();
+const trimmed = await sharp(rendered).trim().toBuffer();
+
+const logo = await sharp(trimmed)
+  .resize({ width: Math.round(S * 0.94), fit: 'inside' })
   .png()
   .toBuffer();
 
