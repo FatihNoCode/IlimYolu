@@ -6,7 +6,7 @@ import UserMenu from './UserMenu';
 import Sidebar from './Sidebar';
 import InboxView from './InboxView';
 import type { LocationRecord } from './LocationsMap';
-import booksLogo from '../../imports/books__1_.png';
+import booksLogo from '../../imports/logo.svg';
 import { notify } from './ui/feedback';
 
 // Leaflet and its CSS are only needed once a superadmin opens the map, so the

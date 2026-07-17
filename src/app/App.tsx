@@ -6,7 +6,7 @@ import ProductTour, { hasSeenTour } from './components/ProductTour';
 import { FeedbackHost } from './components/ui/feedback';
 import { markSessionStart, clearSessionStart, isSessionExpired } from '../lib/session';
 import { isNative, NATIVE_AUTH_REDIRECT } from '../lib/native';
-import faviconUrl from '../imports/books__1_.png';
+import faviconUrl from '../imports/logo.svg';
 
 // Role-specific dashboards and secondary pages are code-split so a user
 // only downloads the bundle for the view they actually land on.

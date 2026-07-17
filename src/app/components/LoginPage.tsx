@@ -6,7 +6,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import { validatePassword } from '../../lib/password';
 import { isNative, getAuthRedirectTo } from '../../lib/native';
 import type { Language } from '../App';
-import booksLogo from '../../imports/books__1_.png';
+import booksLogo from '../../imports/logo.svg';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
 const supabase = getSupabaseClient();

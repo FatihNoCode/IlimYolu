@@ -3,7 +3,7 @@ import { useApp } from '../App';
 import { translations } from './translations';
 import { useHashTab } from '../useHashTab';
 import { Euro, Moon, PlayCircle } from 'lucide-react';
-import booksLogo from '../../imports/books__1_.png';
+import booksLogo from '../../imports/logo.svg';
 import UserMenu from './UserMenu';
 import ProductTour from './ProductTour';
 import AgendaCalendar from './AgendaCalendar';

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import faviconUrl from '../../imports/books__1_.png';
+import faviconUrl from '../../imports/logo.svg';
 import { ChevronDown, Plus, X, Mail, Info } from 'lucide-react';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;

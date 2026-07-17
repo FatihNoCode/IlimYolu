@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Moon, ClipboardList, BellRing, Settings, MessageSquare, CalendarDays, Award } from 'lucide-react';
-import booksLogo from '../../imports/books__1_.png';
+import booksLogo from '../../imports/logo.svg';
 import { useApp } from '../App';
 import { useHashTab } from '../useHashTab';
 import { translations } from './translations';

@@ -5,7 +5,7 @@ import { translations } from './translations';
 import { ArrowLeft, Layers, Users, Upload, BellRing, Wallet, ClipboardList, MessageSquare, CalendarDays, Send, Settings } from 'lucide-react';
 import UserMenu from './UserMenu';
 import Sidebar from './Sidebar';
-import booksLogo from '../../imports/books__1_.png';
+import booksLogo from '../../imports/logo.svg';
 import ManageEntitiesView from './ManageEntitiesView';
 import BoekhoudingView from './BoekhoudingView';
 import InschrijvingenView from './InschrijvingenView';
