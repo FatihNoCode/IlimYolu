@@ -4,6 +4,7 @@ import { translations } from './translations';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getSupabaseClient } from '../../lib/supabase';
 import { validatePassword } from '../../lib/password';
+import { isNative, getAuthRedirectTo } from '../../lib/native';
 import type { Language } from '../App';
 import booksLogo from '../../imports/books__1_.png';
 
@@ -42,7 +43,7 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
     setError('');
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: window.location.origin,
+        redirectTo: getAuthRedirectTo(),
       });
       if (error) throw error;
       setForgotSent(true);
@@ -57,11 +58,22 @@ export default function LoginPage({ onLogin, language, setLanguage }: LoginPageP
     setError('');
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.origin },
+        options: {
+          redirectTo: getAuthRedirectTo(),
+          // In the native shell the webview must not navigate to Google:
+          // Google blocks embedded webviews for sign-in, and leaving the
+          // shell would strand the user outside the app. Hand the URL to
+          // the system browser and wait for the deep link back.
+          skipBrowserRedirect: isNative(),
+        },
       });
       if (error) throw error;
+      if (isNative() && data?.url) {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: data.url });
+      }
       // Browser navigates to Google; nothing else to do here.
     } catch (err: any) {
       setError(err.message || (language === 'tr' ? 'Google ile giriş başarısız' : 'Google-inloggen mislukt'));

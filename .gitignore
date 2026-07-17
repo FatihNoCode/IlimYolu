@@ -7,3 +7,7 @@ dist/
 .DS_Store
 .claude/
 supabase/.temp/
+
+# Android signing material — never commit these
+*.keystore
+*.jks

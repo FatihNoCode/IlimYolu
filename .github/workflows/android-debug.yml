@@ -1,0 +1,44 @@
+name: Build Android Debug APK
+
+# Testing build: sideload this onto a phone to check the app before cutting a
+# Play release. Debug builds use Android's auto-generated debug key, so this
+# needs no keystore and no secrets. Not uploadable to Play.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'src/**'
+      - 'capacitor.config.json'
+      - '.github/workflows/android-debug.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+
+      # dist/ is bundled into the app, so it must exist before cap sync copies
+      # it into android/app/src/main/assets/public.
+      - run: npm run build
+      - run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

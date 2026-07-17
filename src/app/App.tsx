@@ -5,6 +5,7 @@ import LoginPage from './components/LoginPage';
 import ProductTour, { hasSeenTour } from './components/ProductTour';
 import { FeedbackHost } from './components/ui/feedback';
 import { markSessionStart, clearSessionStart, isSessionExpired } from '../lib/session';
+import { isNative, NATIVE_AUTH_REDIRECT } from '../lib/native';
 import faviconUrl from '../imports/books__1_.png';
 
 // Role-specific dashboards and secondary pages are code-split so a user
@@ -230,6 +231,39 @@ export default function App() {
       }
     });
     return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (!isNative()) return;
+
+    // Native OAuth and password-reset links come back through the custom
+    // scheme rather than a page load, so supabase-js never sees the URL and
+    // detectSessionInUrl cannot pick the tokens up. Parse them off the deep
+    // link ourselves; the onAuthStateChange listener above handles the rest.
+    let cleanup = () => {};
+    (async () => {
+      const { App: CapApp } = await import('@capacitor/app');
+      const { Browser } = await import('@capacitor/browser');
+      const handle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+        if (!url.startsWith(NATIVE_AUTH_REDIRECT)) return;
+        await Browser.close().catch(() => {});
+
+        const params = new URLSearchParams(url.split('#')[1] ?? '');
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+        if (!access_token || !refresh_token) return;
+
+        if (params.get('type') === 'recovery') {
+          await supabase.auth.setSession({ access_token, refresh_token });
+          setIsRecovery(true);
+          setLoading(false);
+          return;
+        }
+        await supabase.auth.setSession({ access_token, refresh_token });
+      });
+      cleanup = () => { handle.remove(); };
+    })();
+    return () => cleanup();
   }, []);
 
   const checkSession = async () => {

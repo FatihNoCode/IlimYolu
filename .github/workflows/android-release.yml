@@ -1,0 +1,64 @@
+name: Build Android App Bundle
+
+# Manual only. The .aab is uploaded as a workflow artifact for you to download
+# and upload to the Play Console yourself — this workflow deliberately does not
+# publish to Play.
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'Version name shown in Play (e.g. 1.0.3)'
+        required: true
+        default: '1.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+
+      # The shell serves dist/ from inside the app, so the web build has to run
+      # before cap sync copies it into android/app/src/main/assets/public.
+      - run: npm run build
+      - run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set. See docs/android-release.md."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+
+      - name: Build release bundle
+        working-directory: android
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_VERSION_NAME: ${{ inputs.versionName }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
