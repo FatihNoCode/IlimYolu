@@ -1,12 +1,14 @@
-// Generates a white-background favicon PNG from the logo SVG. Separate from
-// make-icon-sources.mjs (which feeds the Android app icon/splash set) because
-// this one file is a web-only asset, imported directly by src/app/App.tsx.
-// Re-run whenever the logo changes.
+// Generates a white-background favicon PNG from a simplified version of the
+// logo (favicon-source.svg — the three-figure mark, without the dome/book/
+// ring detail that gets lost at tab size). Separate from make-icon-sources.mjs
+// (which feeds the Android app icon/splash set from the full logo) because
+// this is a web-only asset, imported directly by src/app/App.tsx.
+// Re-run whenever favicon-source.svg changes.
 import sharp from 'sharp';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const svg = readFileSync(new URL('../src/imports/logo.svg', import.meta.url));
+const svg = readFileSync(new URL('../src/imports/favicon-source.svg', import.meta.url));
 const out = fileURLToPath(new URL('../src/imports/favicon.png', import.meta.url));
 
 const S = 256;
