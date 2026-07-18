@@ -1,9 +1,15 @@
-import { useState, useEffect } from 'react';
-import { RefreshCw, Users, School, GraduationCap, BookOpen, CalendarCheck, UserPlus, Send } from 'lucide-react';
+import { useState, useEffect, lazy, Suspense } from 'react';
+import { RefreshCw, Users, School, GraduationCap, BookOpen, CalendarCheck, UserPlus, Send, ArrowLeft } from 'lucide-react';
 import booksLogo from '../../imports/logo.svg';
 import { useApp } from '../App';
 import UserMenu from './UserMenu';
 import { notify } from './ui/feedback';
+import type { LocationRecord } from './LocationsMap';
+
+// Leaflet and its CSS are only needed once a regional admin opens the map, so
+// the whole map bundle stays out of the initial download — same pattern as
+// SuperAdminDashboard.
+const LocationsMap = lazy(() => import('./LocationsMap'));
 
 interface RegionalAdminDashboardProps {
   onLogout: () => void;
@@ -13,6 +19,7 @@ interface SchoolBreakdown {
   id: string;
   name: string;
   active: boolean;
+  locationId: string | null;
   locationName: string | null;
   city: string | null;
   studentCount: number;
@@ -22,11 +29,39 @@ interface SchoolBreakdown {
   pendingEnrollments: number;
 }
 
+interface LocationBreakdown {
+  id: string;
+  name: string;
+  city: string | null;
+  active: boolean;
+  region: 'north' | 'south' | null;
+  programNames: string[];
+  studentCount: number;
+  classCount: number;
+  teacherCount: number;
+  attendanceRate: number | null;
+  pendingEnrollments: number;
+}
+
+interface RegionLocation {
+  id: string;
+  name: string;
+  city: string;
+  active: boolean;
+  region: 'north' | 'south' | null;
+  lat: number;
+  lng: number;
+  schoolCount: number;
+}
+
 interface RegionSummary {
   region: 'north' | 'south';
   schools: SchoolBreakdown[];
+  locationBreakdown: LocationBreakdown[];
+  locations: RegionLocation[];
   totals: {
     locations: number;
+    activeLocations: number;
     schools: number;
     students: number;
     teachers: number;
@@ -83,6 +118,18 @@ const t = {
     statusApproved: 'Goedgekeurd',
     statusRejected: 'Afgewezen',
     noRegion: 'Aan uw account is nog geen regio toegewezen. Neem contact op met een superbeheerder.',
+    mapTitle: 'Vestigingen in uw regio',
+    selectLocationHint: 'Klik op een vestiging op de kaart of in de lijst voor details.',
+    backToMap: 'Terug naar kaart',
+    programs: 'Programma\'s',
+    noPrograms: 'Nog geen lesprogramma\'s op deze vestiging',
+    staff: 'Beheerders & leerkrachten',
+    noStaff: 'Nog geen beheerders of leerkrachten op deze vestiging',
+    admin: 'Beheerder',
+    teacher: 'Leerkracht',
+    searchLocations: 'Zoek vestiging...',
+    noLocationsFound: 'Geen vestigingen gevonden',
+    schoolCount: 'programma\'s',
   },
   tr: {
     title: 'Bölge yöneticisi',
@@ -119,6 +166,18 @@ const t = {
     statusApproved: 'Onaylandı',
     statusRejected: 'Reddedildi',
     noRegion: 'Hesabınıza henüz bir bölge atanmadı. Bir süper yöneticiyle iletişime geçin.',
+    mapTitle: 'Bölgenizdeki şubeler',
+    selectLocationHint: 'Detaylar için haritada veya listede bir şubeye tıklayın.',
+    backToMap: 'Haritaya dön',
+    programs: 'Programlar',
+    noPrograms: 'Bu şubede henüz ders programı yok',
+    staff: 'Yöneticiler ve öğretmenler',
+    noStaff: 'Bu şubede henüz yönetici veya öğretmen yok',
+    admin: 'Yönetici',
+    teacher: 'Öğretmen',
+    searchLocations: 'Şube ara...',
+    noLocationsFound: 'Şube bulunamadı',
+    schoolCount: 'program',
   },
 };
 
@@ -148,10 +207,31 @@ export default function RegionalAdminDashboard({ onLogout }: RegionalAdminDashbo
   const [form, setForm] = useState({ name: '', email: '', phone: '', schoolId: '' });
   const [submitting, setSubmitting] = useState(false);
 
+  const [selectedLocation, setSelectedLocation] = useState<RegionLocation | null>(null);
+  const [staff, setStaff] = useState<{ id: string; name: string | null; email: string; role: 'admin' | 'teacher' }[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
+
   useEffect(() => {
     if (!region) { setLoading(false); return; }
     loadData();
   }, [region]);
+
+  useEffect(() => {
+    if (!selectedLocation) { setStaff([]); return; }
+    loadStaff(selectedLocation.id);
+  }, [selectedLocation?.id]);
+
+  const loadStaff = async (locationId: string) => {
+    setLoadingStaff(true);
+    try {
+      const data = await apiRequest(`/locations/${locationId}/staff`);
+      setStaff(data.staff || []);
+    } catch (error) {
+      console.error('Error loading location staff:', error);
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -230,7 +310,7 @@ export default function RegionalAdminDashboard({ onLogout }: RegionalAdminDashbo
         ) : (
           <div className="space-y-4 sm:space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <MetricCard icon={School} label={text.schools} hint={text.schoolsHint} value={summary?.totals.schools ?? 0} />
+              <MetricCard icon={School} label={text.schools} hint={text.schoolsHint} value={summary?.totals.activeLocations ?? 0} />
               <MetricCard icon={Users} label={text.students} hint={text.studentsHint} value={summary?.totals.students ?? 0} />
               <MetricCard icon={GraduationCap} label={text.teachers} hint={text.teachersHint} value={summary?.totals.teachers ?? 0} />
               <MetricCard icon={BookOpen} label={text.classes} hint={text.classesHint} value={summary?.totals.classes ?? 0} />
@@ -244,8 +324,97 @@ export default function RegionalAdminDashboard({ onLogout }: RegionalAdminDashbo
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="text-lg font-semibold text-gray-800">{text.mapTitle}</h2>
+                {selectedLocation && (
+                  <button
+                    onClick={() => setSelectedLocation(null)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-medium ring-1 ring-black/5 transition"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    {text.backToMap}
+                  </button>
+                )}
+              </div>
+
+              {!selectedLocation ? (
+                <>
+                  <p className="text-sm text-gray-500 mb-3">{text.selectLocationHint}</p>
+                  <Suspense
+                    fallback={
+                      <div className="flex items-center justify-center h-[24rem]">
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                      </div>
+                    }
+                  >
+                    <LocationsMap
+                      locations={(summary?.locations || []) as LocationRecord[]}
+                      selectedId={null}
+                      onSelect={(loc) => setSelectedLocation(loc as RegionLocation)}
+                      t={text as unknown as Record<string, string>}
+                    />
+                  </Suspense>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-800">{selectedLocation.name}</h3>
+                    <p className="text-xs text-gray-400">{selectedLocation.city}</p>
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">{text.programs}</h4>
+                    {(() => {
+                      const progs = (summary?.schools || []).filter((s) => s.locationId === selectedLocation.id);
+                      return progs.length === 0 ? (
+                        <p className="text-sm text-gray-400">{text.noPrograms}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {progs.map((s) => (
+                            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-gray-100 text-sm">
+                              <span className="font-medium text-gray-800">{s.name}</span>
+                              <span className="text-gray-500">
+                                {s.studentCount} {text.students.toLowerCase()} · {s.teacherCount} {text.teachers.toLowerCase()} · {s.classCount} {text.classes.toLowerCase()}
+                                {s.attendanceRate !== null ? ` · ${s.attendanceRate}% ${text.attendance.toLowerCase()}` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">{text.staff}</h4>
+                    {loadingStaff ? (
+                      <div className="text-center py-6 text-gray-400">
+                        <RefreshCw className="h-5 w-5 animate-spin mx-auto" />
+                      </div>
+                    ) : staff.length === 0 ? (
+                      <p className="text-sm text-gray-400">{text.noStaff}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {staff.map((member) => (
+                          <div key={member.id} className="flex items-center justify-between gap-2 p-3 rounded-xl border border-gray-100 text-sm">
+                            <div>
+                              <p className="font-medium text-gray-800">{member.name || member.email}</p>
+                              <p className="text-xs text-gray-400">{member.email}</p>
+                            </div>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              {member.role === 'admin' ? text.admin : text.teacher}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">{text.schoolBreakdown}</h2>
-              {!summary || summary.schools.length === 0 ? (
+              {!summary || summary.locationBreakdown.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">{text.noSchools}</div>
               ) : (
                 <div className="overflow-x-auto">
@@ -253,7 +422,6 @@ export default function RegionalAdminDashboard({ onLogout }: RegionalAdminDashbo
                     <thead>
                       <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
                         <th className="pb-2 pr-3 font-medium">{text.school}</th>
-                        <th className="pb-2 pr-3 font-medium">{text.location}</th>
                         <th className="pb-2 pr-3 font-medium">{text.students}</th>
                         <th className="pb-2 pr-3 font-medium">{text.teachers}</th>
                         <th className="pb-2 pr-3 font-medium">{text.classes}</th>
@@ -262,15 +430,17 @@ export default function RegionalAdminDashboard({ onLogout }: RegionalAdminDashbo
                       </tr>
                     </thead>
                     <tbody>
-                      {summary.schools.map((s) => (
-                        <tr key={s.id} className="border-b border-gray-50 last:border-0">
-                          <td className="py-2.5 pr-3 font-medium text-gray-800">{s.name}</td>
-                          <td className="py-2.5 pr-3 text-gray-500">{s.city || s.locationName || '—'}</td>
-                          <td className="py-2.5 pr-3 text-gray-700">{s.studentCount}</td>
-                          <td className="py-2.5 pr-3 text-gray-700">{s.teacherCount}</td>
-                          <td className="py-2.5 pr-3 text-gray-700">{s.classCount}</td>
-                          <td className="py-2.5 pr-3 text-gray-700">{s.attendanceRate !== null ? `${s.attendanceRate}%` : '—'}</td>
-                          <td className="py-2.5 text-gray-700">{s.pendingEnrollments}</td>
+                      {summary.locationBreakdown.map((l) => (
+                        <tr key={l.id} className="border-b border-gray-50 last:border-0">
+                          <td className="py-2.5 pr-3">
+                            <p className="font-medium text-gray-800">{l.name}</p>
+                            <p className="text-xs text-gray-400">{l.city}{l.programNames.length ? ` · ${l.programNames.join(', ')}` : ''}</p>
+                          </td>
+                          <td className="py-2.5 pr-3 text-gray-700">{l.studentCount}</td>
+                          <td className="py-2.5 pr-3 text-gray-700">{l.teacherCount}</td>
+                          <td className="py-2.5 pr-3 text-gray-700">{l.classCount}</td>
+                          <td className="py-2.5 pr-3 text-gray-700">{l.attendanceRate !== null ? `${l.attendanceRate}%` : '—'}</td>
+                          <td className="py-2.5 text-gray-700">{l.pendingEnrollments}</td>
                         </tr>
                       ))}
                     </tbody>

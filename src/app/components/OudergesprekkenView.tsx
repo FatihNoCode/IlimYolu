@@ -92,6 +92,25 @@ export default function OudergesprekkenView({ language, apiRequest }: Oudergespr
     }
   };
 
+  const [deletingAll, setDeletingAll] = useState(false);
+  const deleteAllSessions = async () => {
+    if (!(await confirmDialog({
+      description: language === 'tr'
+        ? 'Tüm veli görüşmelerini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.'
+        : 'Weet u zeker dat u alle oudergesprekken wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+      destructive: true,
+    }))) return;
+    setDeletingAll(true);
+    try {
+      await apiRequest('/oudergesprekken/all', { method: 'DELETE' });
+      loadSessions();
+    } catch (err: any) {
+      notify.error(err.message || 'Error');
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const [reminding, setReminding] = useState<string | null>(null);
   const remindUnbooked = async (id: string) => {
     setReminding(id);
@@ -214,9 +233,22 @@ export default function OudergesprekkenView({ language, apiRequest }: Oudergespr
 
       {/* List existing sessions */}
       <div>
-        <h3 className="text-lg sm:text-xl font-semibold text-emerald-800 mb-4">
-          {language === 'tr' ? 'Mevcut Veli Görüşmeleri' : 'Bestaande Oudergesprekken'}
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="text-lg sm:text-xl font-semibold text-emerald-800">
+            {language === 'tr' ? 'Mevcut Veli Görüşmeleri' : 'Bestaande Oudergesprekken'}
+          </h3>
+          {sessions.length > 0 && (
+            <button
+              onClick={deleteAllSessions}
+              disabled={deletingAll}
+              className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
+            >
+              {deletingAll
+                ? (language === 'tr' ? 'Siliniyor...' : 'Verwijderen...')
+                : (language === 'tr' ? 'Tümünü Sil' : 'Alles Verwijderen')}
+            </button>
+          )}
+        </div>
 
         {loading ? (
           <p className="text-gray-400 text-sm">{language === 'tr' ? 'Yükleniyor...' : 'Laden...'}</p>

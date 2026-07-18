@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useApp } from '../App';
+import { useHashTab } from '../useHashTab';
 import { translations } from './translations';
 import { Plus, School, ArrowRight, RefreshCw, Inbox as InboxIcon, MapPin, ArrowLeft, Users, Check, X, Trash2, BarChart3, GraduationCap, BookOpen, CalendarCheck, Send } from 'lucide-react';
 import UserMenu from './UserMenu';
@@ -28,7 +29,6 @@ interface RegionalAdminRecord {
   phone: string | null;
   region: 'north' | 'south';
   createdAt: string;
-  mfaRequired?: boolean;
 }
 
 interface ProposalRecord {
@@ -49,9 +49,24 @@ interface SchoolBreakdownRecord {
   id: string;
   name: string;
   active: boolean;
+  locationId: string | null;
   locationName: string | null;
   city: string | null;
   region: 'north' | 'south' | null;
+  studentCount: number;
+  classCount: number;
+  teacherCount: number;
+  attendanceRate: number | null;
+  pendingEnrollments: number;
+}
+
+interface LocationBreakdownRecord {
+  id: string;
+  name: string;
+  city: string | null;
+  active: boolean;
+  region: 'north' | 'south' | null;
+  programNames: string[];
   studentCount: number;
   classCount: number;
   teacherCount: number;
@@ -70,7 +85,8 @@ interface RegionTotal {
 
 interface OrgSummary {
   schools: SchoolBreakdownRecord[];
-  totals: RegionTotal & { locations: number };
+  locationBreakdown: LocationBreakdownRecord[];
+  totals: RegionTotal & { locations: number; activeLocations: number };
   regionTotals?: { north: RegionTotal; south: RegionTotal; unassigned: RegionTotal };
 }
 
@@ -95,7 +111,10 @@ const rt = {
     south: 'Zuid',
     invite: 'Uitnodigen',
     noRegionalAdmins: 'Nog geen regionale beheerders',
-    mfaRequired: '2FA verplicht',
+    mfaPolicyTitle: '2FA-vereiste per rol',
+    mfaPolicyHint: 'Verplicht tweestapsverificatie voor alle accounts met deze rol, nu en bij nieuwe uitnodigingen.',
+    mfaPolicyRegional: 'Verplicht voor regionale beheerders',
+    mfaPolicyLocal: 'Verplicht voor lokale beheerders',
     proposalsInbox: 'Voorstellen lokale beheerders',
     noProposals: 'Geen voorstellen',
     proposedBy: 'Voorgesteld door',
@@ -143,7 +162,10 @@ const rt = {
     south: 'Güney',
     invite: 'Davet et',
     noRegionalAdmins: 'Henüz bölge yöneticisi yok',
-    mfaRequired: '2FA zorunlu',
+    mfaPolicyTitle: 'Role göre 2FA zorunluluğu',
+    mfaPolicyHint: 'Bu role sahip tüm hesaplar için iki adımlı doğrulamayı zorunlu kılar; hem şimdi hem yeni davetlerde.',
+    mfaPolicyRegional: 'Bölge yöneticileri için zorunlu',
+    mfaPolicyLocal: 'Lokal yöneticiler için zorunlu',
     proposalsInbox: 'Lokal yönetici önerileri',
     noProposals: 'Öneri yok',
     proposedBy: 'Öneren',
@@ -208,8 +230,10 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
   const [newSchoolName, setNewSchoolName] = useState('');
   const [creating, setCreating] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [tab, setTab] = useState<'locations' | 'inbox' | 'regional' | 'performance'>('locations');
-  const [savingRegion, setSavingRegion] = useState(false);
+  const [tab, setTab] = useHashTab<'locations' | 'inbox' | 'regional' | 'performance'>(
+    'locations',
+    ['locations', 'inbox', 'regional', 'performance'] as const,
+  );
 
   const [orgSummary, setOrgSummary] = useState<OrgSummary | null>(null);
   const [loadingOrgSummary, setLoadingOrgSummary] = useState(false);
@@ -221,11 +245,40 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
   const [creatingRA, setCreatingRA] = useState(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [removingRAId, setRemovingRAId] = useState<string | null>(null);
+  const [mfaPolicy, setMfaPolicy] = useState<{ admin: boolean; regional_admin: boolean } | null>(null);
+  const [savingMfaPolicyRole, setSavingMfaPolicyRole] = useState<'admin' | 'regional_admin' | null>(null);
 
   useEffect(() => {
     loadData();
     loadRegionalData();
+    loadMfaPolicy();
   }, []);
+
+  const loadMfaPolicy = async () => {
+    try {
+      const data = await apiRequest('/mfa-policy');
+      setMfaPolicy({ admin: !!data.admin, regional_admin: !!data.regional_admin });
+    } catch (error) {
+      console.error('Error loading MFA policy:', error);
+    }
+  };
+
+  const toggleMfaPolicy = async (role: 'admin' | 'regional_admin') => {
+    if (!mfaPolicy) return;
+    const next = !mfaPolicy[role];
+    setSavingMfaPolicyRole(role);
+    try {
+      await apiRequest('/mfa-policy', {
+        method: 'PATCH',
+        body: JSON.stringify({ role, required: next }),
+      });
+      setMfaPolicy({ ...mfaPolicy, [role]: next });
+    } catch (error: any) {
+      notify.error(error.message || 'Error updating MFA policy');
+    } finally {
+      setSavingMfaPolicyRole(null);
+    }
+  };
 
   // Scans every school/student/class/attendance record, so it's fetched only
   // once the superadmin actually opens the tab rather than on every login.
@@ -322,22 +375,6 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
     }
   };
 
-  const [togglingMfaId, setTogglingMfaId] = useState<string | null>(null);
-  const toggleRegionalAdminMfa = async (ra: RegionalAdminRecord) => {
-    setTogglingMfaId(ra.id);
-    try {
-      await apiRequest(`/users/${ra.id}/mfa-required`, {
-        method: 'PATCH',
-        body: JSON.stringify({ mfaRequired: !ra.mfaRequired }),
-      });
-      await loadRegionalData();
-    } catch (error: any) {
-      notify.error(error.message || 'Error updating MFA requirement');
-    } finally {
-      setTogglingMfaId(null);
-    }
-  };
-
   const removeRegionalAdmin = async (id: string) => {
     if (!window.confirm(rtx.confirmRemoveRegionalAdmin)) return;
     setRemovingRAId(id);
@@ -360,21 +397,6 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
       notify.error(error.message || 'Error deciding proposal');
     } finally {
       setDecidingId(null);
-    }
-  };
-
-  const updateLocationRegion = async (locationId: string, region: 'north' | 'south' | null) => {
-    setSavingRegion(true);
-    try {
-      await apiRequest(`/locations/${locationId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ region }),
-      });
-      await loadData();
-    } catch (error: any) {
-      notify.error(error.message || 'Error updating region');
-    } finally {
-      setSavingRegion(false);
     }
   };
 
@@ -487,12 +509,7 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
                 <label className="text-xs font-medium text-gray-500">{rtx.region}</label>
                 <select
                   value={selectedLocation.region || ''}
-                  disabled={savingRegion}
-                  onChange={(e) => {
-                    const region = (e.target.value || null) as 'north' | 'south' | null;
-                    setSelectedLocation({ ...selectedLocation, region });
-                    updateLocationRegion(selectedLocation.id, region);
-                  }}
+                  disabled
                   className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                 >
                   <option value="">{rtx.noRegion}</option>
@@ -591,6 +608,25 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
         {tab === 'regional' && (
           <div className="space-y-4 sm:space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-1">{rtx.mfaPolicyTitle}</h2>
+              <p className="text-xs text-gray-400 mb-4">{rtx.mfaPolicyHint}</p>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-6">
+                {(['regional_admin', 'admin'] as const).map((role) => (
+                  <label key={role} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!mfaPolicy?.[role]}
+                      disabled={!mfaPolicy || savingMfaPolicyRole === role}
+                      onChange={() => toggleMfaPolicy(role)}
+                      className="h-4 w-4 accent-emerald-600"
+                    />
+                    {role === 'regional_admin' ? rtx.mfaPolicyRegional : rtx.mfaPolicyLocal}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">{rtx.newRegionalAdmin}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                 <input
@@ -651,16 +687,6 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
                         <p className="text-xs text-gray-400">{ra.email}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!ra.mfaRequired}
-                            disabled={togglingMfaId === ra.id}
-                            onChange={() => toggleRegionalAdminMfa(ra)}
-                            className="h-3.5 w-3.5 accent-emerald-600"
-                          />
-                          {rtx.mfaRequired}
-                        </label>
                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                           {ra.region === 'north' ? rtx.north : rtx.south}
                         </span>
@@ -741,7 +767,7 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <MetricCard icon={School} label={rtx.schools} hint={rtx.schoolsHint} value={orgSummary?.totals.schools ?? 0} />
+                  <MetricCard icon={School} label={rtx.schools} hint={rtx.schoolsHint} value={orgSummary?.totals.activeLocations ?? 0} />
                   <MetricCard icon={Users} label={rtx.students} hint={rtx.studentsHint} value={orgSummary?.totals.students ?? 0} />
                   <MetricCard icon={GraduationCap} label={rtx.teachers} hint={rtx.teachersHint} value={orgSummary?.totals.teachers ?? 0} />
                   <MetricCard icon={BookOpen} label={rtx.classes} hint={rtx.classesHint} value={orgSummary?.totals.classes ?? 0} />
@@ -797,7 +823,7 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6">
                   <h3 className="text-base font-semibold text-gray-800 mb-4">{rtx.schoolBreakdown}</h3>
-                  {!orgSummary || orgSummary.schools.length === 0 ? (
+                  {!orgSummary || orgSummary.locationBreakdown.length === 0 ? (
                     <div className="text-center py-8 text-gray-400">{rtx.noSchools}</div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -805,7 +831,6 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
                         <thead>
                           <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
                             <th className="pb-2 pr-3 font-medium">{rtx.school}</th>
-                            <th className="pb-2 pr-3 font-medium">{rtx.location}</th>
                             <th className="pb-2 pr-3 font-medium">{rtx.region}</th>
                             <th className="pb-2 pr-3 font-medium">{rtx.students}</th>
                             <th className="pb-2 pr-3 font-medium">{rtx.teachers}</th>
@@ -815,16 +840,18 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
                           </tr>
                         </thead>
                         <tbody>
-                          {orgSummary.schools.map((s) => (
-                            <tr key={s.id} className="border-b border-gray-50 last:border-0">
-                              <td className="py-2.5 pr-3 font-medium text-gray-800">{s.name}</td>
-                              <td className="py-2.5 pr-3 text-gray-500">{s.city || s.locationName || '—'}</td>
-                              <td className="py-2.5 pr-3 text-gray-500">{s.region === 'north' ? rtx.north : s.region === 'south' ? rtx.south : rtx.unassigned}</td>
-                              <td className="py-2.5 pr-3 text-gray-700">{s.studentCount}</td>
-                              <td className="py-2.5 pr-3 text-gray-700">{s.teacherCount}</td>
-                              <td className="py-2.5 pr-3 text-gray-700">{s.classCount}</td>
-                              <td className="py-2.5 pr-3 text-gray-700">{s.attendanceRate !== null ? `${s.attendanceRate}%` : '—'}</td>
-                              <td className="py-2.5 text-gray-700">{s.pendingEnrollments}</td>
+                          {orgSummary.locationBreakdown.map((l) => (
+                            <tr key={l.id} className="border-b border-gray-50 last:border-0">
+                              <td className="py-2.5 pr-3">
+                                <p className="font-medium text-gray-800">{l.name}</p>
+                                <p className="text-xs text-gray-400">{l.city}{l.programNames.length ? ` · ${l.programNames.join(', ')}` : ''}</p>
+                              </td>
+                              <td className="py-2.5 pr-3 text-gray-500">{l.region === 'north' ? rtx.north : l.region === 'south' ? rtx.south : rtx.unassigned}</td>
+                              <td className="py-2.5 pr-3 text-gray-700">{l.studentCount}</td>
+                              <td className="py-2.5 pr-3 text-gray-700">{l.teacherCount}</td>
+                              <td className="py-2.5 pr-3 text-gray-700">{l.classCount}</td>
+                              <td className="py-2.5 pr-3 text-gray-700">{l.attendanceRate !== null ? `${l.attendanceRate}%` : '—'}</td>
+                              <td className="py-2.5 text-gray-700">{l.pendingEnrollments}</td>
                             </tr>
                           ))}
                         </tbody>

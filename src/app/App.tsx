@@ -384,6 +384,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Dashboard tabs sync to the URL hash via history.replaceState (see
+  // useHashTab), so the whole authenticated session only ever holds one
+  // history entry. Without a buffer, the *first* back-button press walks
+  // straight past the app into whatever page was open before it — from
+  // there a stale reload can land the user in an unauthenticated state that
+  // reads as an unexpected logout. Push one buffer entry once authenticated,
+  // and re-push it on every popstate so back is trapped harmlessly inside
+  // the SPA instead of unloading it.
+  useEffect(() => {
+    if (!user) return;
+    window.history.pushState(null, '', window.location.href);
+    const onPopState = () => {
+      window.history.pushState(null, '', window.location.href);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [user]);
+
   const handleEnterSchool = (schoolId: string) => {
     setActingSchoolId(schoolId);
     setViewMode('admin');

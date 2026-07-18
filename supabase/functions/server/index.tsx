@@ -86,7 +86,7 @@ app.use('/*', async (c, next) => {
   // enrollment (or replayed from before the challenge) would keep working.
   // Someone still mid-enrollment (mfaEnrolled not yet true) is let through so
   // they can reach the enroll flow itself.
-  if (mfaRequiredForRole(userData) && userData?.mfaEnrolled && decodeAal(token) !== 'aal2') {
+  if (await mfaRequiredForRole(userData) && userData?.mfaEnrolled && decodeAal(token) !== 'aal2') {
     return c.json({ error: 'MFA_REQUIRED' }, 403);
   }
   return next();
@@ -118,15 +118,27 @@ async function getUserData(userId: string) {
   return userData;
 }
 
-// Two-factor (TOTP) is mandatory for superadmins, and opt-in-per-account (via
-// the `mfaRequired` flag a superadmin sets) for regional and local admins.
-// Enrollment/challenge/verify happen directly against Supabase's GoTrue API
-// from the client (supabase.auth.mfa.*) — this server only decides whether a
-// given session's assurance level is good enough to proceed.
-function mfaRequiredForRole(userData: any): boolean {
+// Org-wide MFA policy, set by a superadmin per role (not per person) — see
+// GET/PATCH /mfa-policy below. Defaults to off for both roles.
+const DEFAULT_MFA_POLICY: { admin: boolean; regional_admin: boolean } = { admin: false, regional_admin: false };
+
+async function getMfaPolicy(): Promise<{ admin: boolean; regional_admin: boolean }> {
+  const stored = await kv.get('settings:mfa_policy');
+  return { ...DEFAULT_MFA_POLICY, ...(stored || {}) };
+}
+
+// Two-factor (TOTP) is mandatory for superadmins, and org-wide policy-driven
+// (via `settings:mfa_policy`, set by a superadmin) for regional and local
+// admins. Enrollment/challenge/verify happen directly against Supabase's
+// GoTrue API from the client (supabase.auth.mfa.*) — this server only decides
+// whether a given session's assurance level is good enough to proceed.
+async function mfaRequiredForRole(userData: any): Promise<boolean> {
   if (!userData) return false;
   if (userData.role === 'superadmin') return true;
-  if ((userData.role === 'admin' || userData.role === 'regional_admin') && userData.mfaRequired === true) return true;
+  if (userData.role === 'admin' || userData.role === 'regional_admin') {
+    const policy = await getMfaPolicy();
+    return !!policy[userData.role as 'admin' | 'regional_admin'];
+  }
   return false;
 }
 
@@ -764,7 +776,8 @@ app.post("/make-server-6679cacd/signin", async (c) => {
     // already has a verified factor: hand back the (aal1) tokens without the
     // user payload so the client knows to prompt for a TOTP code and call
     // supabase.auth.mfa.challengeAndVerify before treating this as a login.
-    if (mfaRequiredForRole(userData) && hasVerifiedTotp) {
+    const roleRequiresMfa = await mfaRequiredForRole(userData);
+    if (roleRequiresMfa && hasVerifiedTotp) {
       return c.json({
         mfaChallenge: true,
         accessToken: data.session.access_token,
@@ -775,10 +788,12 @@ app.post("/make-server-6679cacd/signin", async (c) => {
     return c.json({
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token,
-      user: { ...userData, id: data.user.id },
+      // mfaRequired reflects the live org-wide policy (not the retired
+      // per-person flag) so the client's "required" badge/lock stays correct.
+      user: { ...userData, id: data.user.id, mfaRequired: roleRequiresMfa },
       // Role requires MFA but no factor is enrolled yet — the client should
       // route straight to the enrollment screen after login.
-      mfaSetupRequired: mfaRequiredForRole(userData) && !hasVerifiedTotp,
+      mfaSetupRequired: roleRequiresMfa && !hasVerifiedTotp,
     });
   } catch (err) {
     console.log('Signin error:', err);
@@ -801,7 +816,7 @@ app.get("/make-server-6679cacd/session", async (c) => {
     // TOTP step completed — e.g. a reload mid-challenge — would restore a
     // full session on every subsequent app load, skipping the code entirely.
     const token = c.req.header('Authorization')?.split(' ')[1] || '';
-    if (mfaRequiredForRole(userData) && userData?.mfaEnrolled && decodeAal(token) !== 'aal2') {
+    if (await mfaRequiredForRole(userData) && userData?.mfaEnrolled && decodeAal(token) !== 'aal2') {
       return c.json({ error: 'MFA_REQUIRED' }, 403);
     }
 
@@ -853,7 +868,7 @@ app.get("/make-server-6679cacd/session", async (c) => {
       }
     }
 
-    return c.json({ user: { ...userData, id: user.id } });
+    return c.json({ user: { ...userData, id: user.id, mfaRequired: await mfaRequiredForRole(userData) } });
   } catch (err) {
     console.log('Session error:', err);
     return c.json({ error: 'Failed to get session' }, 500);
@@ -898,10 +913,29 @@ app.post("/make-server-6679cacd/mfa/sync", async (c) => {
   }
 });
 
-// Superadmin-only: require (or stop requiring) 2FA for a regional or local
-// admin account. Superadmins themselves always require it, non-negotiably,
-// so this only ever targets 'admin' / 'regional_admin' accounts.
-app.patch("/make-server-6679cacd/users/:userId/mfa-required", async (c) => {
+// Org-wide MFA policy: superadmin-only read/write. Replaces the old
+// per-person `mfaRequired` flag — one switch per role (`admin`,
+// `regional_admin`) instead of a checkbox on every individual account.
+// Superadmins themselves always require MFA, non-negotiably, and aren't
+// covered by this policy.
+app.get("/make-server-6679cacd/mfa-policy", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+
+    const requester = await getUserData(user.id);
+    if (requester?.role !== 'superadmin') {
+      return c.json({ error: 'Only superadmins can view this' }, 403);
+    }
+
+    return c.json(await getMfaPolicy());
+  } catch (err) {
+    console.log('Get MFA policy error:', err);
+    return c.json({ error: 'Failed to get MFA policy' }, 500);
+  }
+});
+
+app.patch("/make-server-6679cacd/mfa-policy", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
     if (error) return c.json({ error }, 401);
@@ -911,24 +945,20 @@ app.patch("/make-server-6679cacd/users/:userId/mfa-required", async (c) => {
       return c.json({ error: 'Only superadmins can change this' }, 403);
     }
 
-    const { mfaRequired } = await c.req.json();
-    if (typeof mfaRequired !== 'boolean') {
-      return c.json({ error: 'mfaRequired must be a boolean' }, 400);
+    const { role, required } = await c.req.json();
+    if (role !== 'admin' && role !== 'regional_admin') {
+      return c.json({ error: "role must be 'admin' or 'regional_admin'" }, 400);
+    }
+    if (typeof required !== 'boolean') {
+      return c.json({ error: 'required must be a boolean' }, 400);
     }
 
-    const targetUserId = c.req.param('userId');
-    const target = await kv.get(`user:${targetUserId}`);
-    if (!target) return c.json({ error: 'User not found' }, 404);
-    if (target.role !== 'admin' && target.role !== 'regional_admin') {
-      return c.json({ error: 'MFA requirement only applies to regional or local admins' }, 400);
-    }
-
-    const updated = { ...target, mfaRequired };
-    await kv.set(`user:${targetUserId}`, updated);
-    return c.json({ user: updated });
+    const policy = { ...(await getMfaPolicy()), [role]: required };
+    await kv.set('settings:mfa_policy', policy);
+    return c.json(policy);
   } catch (err) {
-    console.log('Toggle MFA required error:', err);
-    return c.json({ error: 'Failed to update MFA requirement' }, 500);
+    console.log('Update MFA policy error:', err);
+    return c.json({ error: 'Failed to update MFA policy' }, 500);
   }
 });
 
@@ -1359,6 +1389,49 @@ async function getSchoolsInRegion(scope: Region | 'all') {
   return { locations, schools, locationById };
 }
 
+// Read-only admins/teachers list for one vestiging — lets a regional admin
+// (scoped to their own region) or a superadmin see who runs a location
+// without exposing any student/parent data, which this deliberately never
+// touches.
+app.get("/make-server-6679cacd/locations/:locationId/staff", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+
+    const locationId = c.req.param('locationId');
+    const location = await kv.get(`location:${locationId}`);
+    if (!location) return c.json({ error: 'Location not found' }, 404);
+
+    const isSuperadmin = userData?.role === 'superadmin';
+    const isOwnRegionalAdmin = userData?.role === 'regional_admin' && userData.region && userData.region === location.region;
+    if (!isSuperadmin && !isOwnRegionalAdmin) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const allSchools = await kv.getByPrefix('school:');
+    const schoolIds = new Set(allSchools.filter((s: any) => s && s.id && s.locationId === locationId).map((s: any) => s.id));
+
+    const allUsers = await kv.getByPrefix('user:');
+    const admins = allUsers
+      .filter((u: any) => u && u.id && u.role === 'admin' && schoolIds.has(u.schoolId))
+      .map((u: any) => ({ id: u.id, name: u.name || null, email: u.email, role: 'admin' as const }));
+
+    const allClasses = await kv.getByPrefix('class:');
+    const teacherIds = new Set(
+      allClasses.filter((cl: any) => cl && cl.teacherId && schoolIds.has(cl.schoolId)).map((cl: any) => cl.teacherId),
+    );
+    const teachers = allUsers
+      .filter((u: any) => u && u.id && u.role === 'teacher' && teacherIds.has(u.id))
+      .map((u: any) => ({ id: u.id, name: u.name || null, email: u.email, role: 'teacher' as const }));
+
+    return c.json({ staff: [...admins, ...teachers] });
+  } catch (err) {
+    console.log('Get location staff error:', err);
+    return c.json({ error: 'Failed to get location staff' }, 500);
+  }
+});
+
 app.post("/make-server-6679cacd/regional-admins", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
@@ -1452,7 +1525,7 @@ app.get("/make-server-6679cacd/regional-admins", async (c) => {
     const allUsers = await kv.getByPrefix('user:');
     const regionalAdmins = allUsers
       .filter((u: any) => u && u.role === 'regional_admin')
-      .map((u: any) => ({ id: u.id, email: u.email, name: u.name || null, phone: u.phone || null, region: u.region, createdAt: u.createdAt, mfaRequired: !!u.mfaRequired }));
+      .map((u: any) => ({ id: u.id, email: u.email, name: u.name || null, phone: u.phone || null, region: u.region, createdAt: u.createdAt }));
 
     return c.json({ regionalAdmins });
   } catch (err) {
@@ -1536,6 +1609,7 @@ app.get("/make-server-6679cacd/regions/:region/summary", async (c) => {
         id: s.id,
         name: s.name,
         active: s.active,
+        locationId: s.locationId || null,
         locationName: loc?.name || null,
         city: loc?.city || null,
         region: loc?.region || null,
@@ -1546,6 +1620,40 @@ app.get("/make-server-6679cacd/regions/:region/summary", async (c) => {
         pendingEnrollments: pendingBySchool.get(s.id) || 0,
       };
     });
+
+    // "Overzicht per school" is meant to read as one row per physical
+    // vestiging, not one row per lesson/program — a single location can run
+    // several programs (e.g. "Haftasonu Eğitim" + "Darul Furkan" both at the
+    // same Amersfoort address), and counting those separately overstates how
+    // many locations are actually active. Roll the per-program breakdown
+    // above up by locationId; attendance is re-derived from summed
+    // present/total rather than averaging per-program percentages, which
+    // would over-weight small programs.
+    const locationBreakdown = locations.map((l: any) => {
+      const progs = schoolBreakdown.filter((s) => s.locationId === l.id);
+      let present = 0, total = 0;
+      for (const s of progs) {
+        const att = attendanceBySchool.get(s.id);
+        if (att) { present += att.present; total += att.total; }
+      }
+      return {
+        id: l.id,
+        name: l.name,
+        city: l.city,
+        active: l.active,
+        region: l.region || null,
+        programNames: progs.map((s) => s.name),
+        studentCount: progs.reduce((sum, s) => sum + s.studentCount, 0),
+        classCount: progs.reduce((sum, s) => sum + s.classCount, 0),
+        teacherCount: new Set(
+          (classesBySchool && progs.flatMap((s) => classesBySchool.get(s.id) || []))
+            .filter((cl: any) => cl.teacherId)
+            .map((cl: any) => cl.teacherId),
+        ).size,
+        attendanceRate: total > 0 ? Math.round((present / total) * 100) : null,
+        pendingEnrollments: progs.reduce((sum, s) => sum + s.pendingEnrollments, 0),
+      };
+    }).filter((l) => l.programNames.length > 0);
 
     // For the superadmin's org-wide overview, also roll the same numbers up
     // by region so "north vs south" is visible without opening each region's
@@ -1584,12 +1692,31 @@ app.get("/make-server-6679cacd/regions/:region/summary", async (c) => {
       );
     }
 
+    const schoolCountByLocation: Record<string, number> = {};
+    for (const s of schools as any[]) {
+      if (s.locationId) schoolCountByLocation[s.locationId] = (schoolCountByLocation[s.locationId] || 0) + 1;
+    }
+
     return c.json({
       region: scope,
-      locations: locations.map((l: any) => ({ id: l.id, name: l.name, city: l.city, active: l.active, region: l.region || null })),
+      locations: locations.map((l: any) => ({
+        id: l.id,
+        name: l.name,
+        city: l.city,
+        active: l.active,
+        region: l.region || null,
+        lat: l.lat,
+        lng: l.lng,
+        schoolCount: schoolCountByLocation[l.id] || 0,
+      })),
       schools: schoolBreakdown,
+      locationBreakdown,
       totals: {
         locations: locations.length,
+        // "Aantal actieve leslocaties" — active physical vestigingen, not
+        // active lesson/program count (`schools`, kept below for anything
+        // still keyed off program ids, e.g. the local-admin-proposal picker).
+        activeLocations: locations.filter((l: any) => l.active).length,
         schools: schools.length,
         students: students.length,
         teachers: teacherIds.size,
@@ -2638,7 +2765,7 @@ app.get("/make-server-6679cacd/users", async (c) => {
 
       if (u.role === 'admin') {
         if (u.schoolId !== schoolId) continue;
-        users.push({ id: u.id, email: u.email, name: u.name || null, phone: u.phone || null, role: u.role, createdAt: u.createdAt, status: u.status || 'approved', mfaRequired: !!u.mfaRequired });
+        users.push({ id: u.id, email: u.email, name: u.name || null, phone: u.phone || null, role: u.role, createdAt: u.createdAt, status: u.status || 'approved' });
       } else if (u.role === 'superadmin') {
         // Only visible to real superadmins — a regular admin has no actionable use
         // for cross-tenant superadmin accounts.
@@ -3930,10 +4057,17 @@ app.get("/make-server-6679cacd/invite/:token", async (c) => {
       return c.json({ error: 'Invite token expired' }, 400);
     }
 
+    // Admins/regional admins whose role currently requires MFA (per the
+    // org-wide policy) must finish TOTP enrollment as part of account
+    // creation, not after their first login.
+    const mfaSetupRequired = (inviteData.role === 'admin' || inviteData.role === 'regional_admin')
+      && (await getMfaPolicy())[inviteData.role as 'admin' | 'regional_admin'];
+
     return c.json({
       valid: true,
       email: inviteData.email,
-      role: inviteData.role
+      role: inviteData.role,
+      mfaSetupRequired,
     });
   } catch (err) {
     console.log('Verify invite token error:', err);
@@ -6512,6 +6646,33 @@ app.post("/make-server-6679cacd/oudergesprekken/:id/reschedule", async (c) => {
   } catch (err) {
     console.log('Reschedule oudergesprek slot error:', err);
     return c.json({ error: 'Failed to reschedule slot' }, 500);
+  }
+});
+
+// Delete every conference session for the caller's school in one go — the
+// "Alles verwijderen" button, so an admin doesn't have to delete old sessions
+// one by one. Registered before the /:id route below since Hono matches path
+// params in registration order and /:id would otherwise swallow "/all".
+app.delete("/make-server-6679cacd/oudergesprekken/all", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    const { schoolId, error: schoolError } = await resolveSchoolContext(c, userData);
+    if (schoolError) return c.json({ error: schoolError }, schoolError === 'Unauthorized' ? 403 : 400);
+
+    const ids: string[] = await kv.get('oudergesprek_ids') || [];
+    const sessions = await kv.mget(ids.map((id: string) => `oudergesprek:${id}`));
+    const toDelete = sessions.filter((s: any) => s && s.id && (!s.schoolId || s.schoolId === schoolId));
+
+    await kv.mdel(toDelete.map((s: any) => `oudergesprek:${s.id}`));
+    const deletedIds = new Set(toDelete.map((s: any) => s.id));
+    await kv.set('oudergesprek_ids', ids.filter((i: string) => !deletedIds.has(i)));
+
+    return c.json({ success: true, deleted: toDelete.length });
+  } catch (err) {
+    console.log('Delete all oudergesprekken error:', err);
+    return c.json({ error: 'Failed to delete conferences' }, 500);
   }
 });
 

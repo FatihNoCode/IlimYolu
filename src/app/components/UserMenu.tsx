@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { User as UserIcon, LogOut, Bell, Pencil, X, Check, Trash2, ShieldCheck } from 'lucide-react';
 import { useApp, supabase } from '../App';
+import { startTotpEnroll, confirmTotpEnroll } from '../../lib/mfaEnroll';
 
 interface Notification {
   id: string;
@@ -174,11 +175,10 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
     setMfaBusy(true);
     setMfaError('');
     try {
-      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
-      if (error) throw error;
-      setMfaFactorId(data.id);
-      setMfaQrCode(data.totp.qr_code);
-      setMfaSecret(data.totp.secret);
+      const { factorId, qrCode, secret } = await startTotpEnroll();
+      setMfaFactorId(factorId);
+      setMfaQrCode(qrCode);
+      setMfaSecret(secret);
       setMfaEnrolling(true);
     } catch (err) {
       console.error('Error starting MFA enroll:', err);
@@ -193,16 +193,7 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
     setMfaBusy(true);
     setMfaError('');
     try {
-      const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
-      if (challengeError) throw challengeError;
-      const { error: verifyError } = await supabase.auth.mfa.verify({
-        factorId: mfaFactorId,
-        challengeId: challenge.id,
-        code: mfaCode.trim(),
-      });
-      if (verifyError) throw verifyError;
-
-      await apiRequest('/mfa/sync', { method: 'POST' });
+      await confirmTotpEnroll(mfaFactorId, mfaCode, apiRequest);
       if (user) setUser({ ...user, mfaEnrolled: true, mfaSetupRequired: false });
       setMfaEnrolling(false);
       setMfaCode('');
