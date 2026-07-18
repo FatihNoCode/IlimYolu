@@ -22,6 +22,10 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "http://localhost:3000",
   "http://127.0.0.1:5173",
+  // Capacitor's WebView serves the bundled app from these origins on
+  // Android/iOS respectively — not a dev server, the shipped mobile app.
+  "https://localhost",
+  "capacitor://localhost",
 ]);
 
 app.use(
