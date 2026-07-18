@@ -94,10 +94,15 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
       maxBounds: NL_BOUNDS,
       maxBoundsViscosity: 1,
       maxZoom: 19,
-      // Whole zoom levels are a coarse step here: the country fits at ~6.8, so
-      // rounding down to 6 would pull England into frame. Quarter-steps let the
-      // zoom-out limit land just where the Netherlands fills the pane.
-      zoomSnap: 0.25,
+      // Continuous zoom rather than whole/quarter steps: Leaflet's snapping
+      // rounds every setZoom() call to the nearest zoomSnap multiple, which
+      // silently ate the ZOOM_BOOST adjustment below on some screen sizes
+      // (it landed short of the next 0.25 step and rounded back down to the
+      // unboosted value). Zero snap makes the computed zoom apply exactly,
+      // every time, at the cost of the zoom control's +/- moving by a full
+      // level instead of a quarter — a fine trade for a fixed, non-interactive
+      // view like this one.
+      zoomSnap: 0,
     });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap',
@@ -138,7 +143,18 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
     });
 
     mapRef.current = map;
+
+    // Leaflet caches the container's pixel size at creation time and only
+    // that cached size, not the actual DOM box; if the container's real size
+    // settles afterwards — a webfont or the sidebar list's content loading in,
+    // a responsive breakpoint change — every pane (tiles, the dimming overlay,
+    // markers) stays clipped to the stale size, leaving a blank strip where
+    // the container grew. Watch the container itself and resync on any change.
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize());
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
       markersRef.current = {};
