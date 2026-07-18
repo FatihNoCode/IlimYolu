@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { User as UserIcon, LogOut, Bell, Pencil, X, Check, Trash2, ShieldCheck } from 'lucide-react';
 import { useApp, supabase } from '../App';
 import { startTotpEnroll, confirmTotpEnroll } from '../../lib/mfaEnroll';
+import { notify, confirmDialog } from './ui/feedback';
 
 interface Notification {
   id: string;
@@ -210,7 +211,7 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
 
   const disableMfa = async () => {
     if (!mfaFactorId) return;
-    if (!window.confirm(text.disableConfirm)) return;
+    if (!(await confirmDialog({ description: text.disableConfirm, destructive: true }))) return;
     setMfaBusy(true);
     setMfaError('');
     try {
@@ -251,12 +252,12 @@ export default function UserMenu({ onLogout }: UserMenuProps) {
     try {
       const dataUrl = await fileToSignatureDataUrl(file);
       if (dataUrl.length > 500_000) {
-        alert(text.signatureTooLarge);
+        notify.error(text.signatureTooLarge);
         return;
       }
       setEditSignature(dataUrl);
     } catch {
-      alert(text.signatureTooLarge);
+      notify.error(text.signatureTooLarge);
     }
   };
 

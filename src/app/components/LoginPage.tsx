@@ -263,7 +263,7 @@ export default function LoginPage({ onLogin, language, setLanguage, mfaChallenge
 
   const BrandMark = () => (
     <div className="flex flex-col items-center mb-6">
-      <img src={booksLogo} alt="Rahman Eğitim" className="h-[80px] w-[80px] object-contain mb-3" />
+      <img src={booksLogo} alt="Rahman Eğitim" className="h-[104px] w-[104px] object-contain mb-3" />
       <h1 className="text-xl font-bold text-gray-800 tracking-tight">Rahman Eğitim</h1>
     </div>
   );

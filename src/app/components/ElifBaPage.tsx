@@ -1518,11 +1518,14 @@ function FallingLettersGame({ letters, onComplete }: {
     return () => clearInterval(spawnRef.current);
   }, [targetLetter]);
 
+  const targetRef = useRef(targetLetter);
+  targetRef.current = targetLetter;
+
   useEffect(() => {
     let active = true;
-    const CATCH_Y_MIN = 78; // top of catch band
-    const CATCH_Y_MAX = 96; // bottom (just above basket)
-    const CATCH_X_TOL = 22; // wider tolerance so it plays well on touch
+    const CATCH_Y_MIN = 84; // top of catch band (basket rim)
+    const CATCH_Y_MAX = 97; // bottom (just above basket floor)
+    const CATCH_X_TOL = 10; // roughly the basket's own width
     const animate = () => {
       if (!active) return;
       setFallingItems(prev => {
@@ -1534,7 +1537,9 @@ function FallingLettersGame({ letters, onComplete }: {
         );
 
         caught.forEach(item => {
-          if (item.isTarget) {
+          // Judge against the target at catch time — the target rotates while
+          // letters are still falling, so the spawn-time flag can be stale.
+          if (item.letter.id === targetRef.current.id) {
             setScore(s => s + 1);
             setCombo(c => c + 1);
             setFlash('good');
@@ -1675,18 +1680,31 @@ const MOLE_KEYFRAMES = `
 
 // Illustrated mole with the Arabic letter drawn on its belly badge. Shows
 // dot eyes normally and X-eyes + stars once whacked.
-function Mole({ letter, state }: { letter: string; state: 'idle' | 'whacked' | 'wrong' }) {
+function Mole({ letter, state, onWhack }: { letter: string; state: 'idle' | 'whacked' | 'wrong'; onWhack?: () => void }) {
+  // Corners of the bounding box are transparent and can overlap a neighbour,
+  // so only accept clicks that land on the mole's body (ellipse hit-test).
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const nx = (e.clientX - r.left) / r.width - 0.5;   // -0.5 .. 0.5
+    const ny = (e.clientY - r.top) / r.height - 0.62;  // body centre sits low
+    if ((nx / 0.42) ** 2 + (ny / 0.45) ** 2 > 1) return;
+    onWhack?.();
+  };
   const faceColor = state === 'wrong' ? '#dc2626' : '#8a5a3b';
   const anim = state === 'whacked' ? 'moleWhackShake 0.5s ease-out'
     : state === 'wrong' ? 'moleWrongShake 0.4s ease-in-out'
     : 'moleHop 0.4s ease-out';
   return (
-    <div style={{
-      position: 'absolute', left: '50%', bottom: '18%', width: '82%',
-      transformOrigin: 'bottom center',
-      transform: 'translateX(-50%)',
-      animation: anim,
-    }}>
+    <div
+      onClick={handleClick}
+      style={{
+        position: 'absolute', left: '50%', bottom: '18%', width: '82%',
+        transformOrigin: 'bottom center',
+        transform: 'translateX(-50%)',
+        animation: anim,
+        pointerEvents: 'auto',
+        cursor: 'inherit',
+      }}>
       <svg viewBox="0 0 180 190" width="100%" style={{ display: 'block' }}>
         {/* body */}
         <ellipse cx="90" cy="150" rx="66" ry="55" fill="#7d5638" />
@@ -1924,19 +1942,19 @@ function WhackAMoleGame({ letters, onComplete }: {
           if (!pos) return null;
           const state: 'idle' | 'whacked' | 'wrong' = whacked === i ? 'whacked' : wrongHit === i ? 'wrong' : 'idle';
           return (
-            <button
+            <div
               key={i}
-              onClick={() => { swingMallet(); whack(i); }}
               className="absolute select-none"
               style={{
                 left: `${pos.left}%`,
                 top: `${pos.top}%`,
                 transform: 'translate(-50%, -50%)',
                 width: '20%',
-                minWidth: 150,
+                minWidth: 130,
                 aspectRatio: '1 / 1',
-                background: 'transparent',
-                border: 0,
+                // Only the mole itself is clickable — the slot square would
+                // otherwise overlap neighbouring moles and steal their taps.
+                pointerEvents: 'none',
                 cursor: mallet.visible ? 'none' : 'pointer',
               }}
             >
@@ -1955,8 +1973,8 @@ function WhackAMoleGame({ letters, onComplete }: {
                 <ellipse cx="75" cy="50" rx="72" ry="34" fill={`url(#mole-dirt-${i})`} />
                 <ellipse cx="75" cy="40" rx="60" ry="22" fill="#26170d" />
               </svg>
-              <Mole letter={letter.arabic} state={state} />
-            </button>
+              <Mole letter={letter.arabic} state={state} onWhack={() => { swingMallet(); whack(i); }} />
+            </div>
           );
         })}
 

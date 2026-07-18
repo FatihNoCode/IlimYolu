@@ -8,7 +8,7 @@ import Sidebar from './Sidebar';
 import InboxView from './InboxView';
 import type { LocationRecord } from './LocationsMap';
 import booksLogo from '../../imports/logo.svg';
-import { notify } from './ui/feedback';
+import { notify, confirmDialog } from './ui/feedback';
 
 // Leaflet and its CSS are only needed once a superadmin opens the map, so the
 // whole map bundle stays out of the initial download.
@@ -393,7 +393,7 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
   };
 
   const removeRegionalAdmin = async (id: string) => {
-    if (!window.confirm(rtx.confirmRemoveRegionalAdmin)) return;
+    if (!(await confirmDialog({ description: rtx.confirmRemoveRegionalAdmin, destructive: true }))) return;
     setRemovingRAId(id);
     try {
       await apiRequest(`/users/${id}`, { method: 'DELETE' });
