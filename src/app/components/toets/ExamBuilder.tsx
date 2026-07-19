@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Undo2, Redo2, Plus, Trash2, ArrowUp, ArrowDown, BookOpen, Loader2 } from 'lucide-react';
+import { useState, useRef, useLayoutEffect } from 'react';
+import { Undo2, Redo2, Plus, Trash2, GripVertical, BookOpen, Loader2 } from 'lucide-react';
 import { useHistory } from './useHistory';
 import { ExamDraft, ExamQuestion, QuestionType } from './examTypes';
 import { notify } from '../ui/feedback';
@@ -39,6 +39,7 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
     addQuestion: tr ? 'Soru ekle' : 'Vraag toevoegen',
     prompt: tr ? 'Soru metni' : 'Vraagtekst',
     points: tr ? 'Puan' : 'Punten',
+    pointsForQuestion: tr ? 'Bu soru için puan' : 'Punten voor deze vraag',
     options: tr ? 'Seçenekler (doğru olanları işaretleyin)' : 'Opties (vink de juiste aan)',
     addOption: tr ? 'Seçenek ekle' : 'Optie toevoegen',
     yes: tr ? 'Evet / Doğru' : 'Ja / Waar',
@@ -51,23 +52,22 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
       mc: tr ? 'Çoktan seçmeli' : 'Meerkeuze',
       yesno: tr ? 'Evet / Hayır' : 'Ja / Nee',
       gap: tr ? 'Boşluk doldurma' : 'Invullen (gatentekst)',
-      qurangap: tr ? 'Kur’an boşluk doldurma' : 'Koran gatentekst',
+      qurangap: tr ? 'Kur’an Ayeti Tamamlama' : 'Koran vers aanvullen',
       open: tr ? 'Açık uçlu' : 'Open vraag',
     } as Record<QuestionType, string>,
     surah: tr ? 'Sure no' : 'Soera nr.',
     ayah: tr ? 'Ayet no' : 'Vers nr.',
     loadVerse: tr ? 'Ayeti getir' : 'Vers ophalen',
     pickWord: tr ? 'Boşluk bırakılacak kelimeye tıklayın' : 'Klik op het woord dat weggelaten wordt',
-    distractors: tr ? 'Yanıltıcı kelimeler (diğer ayetlerden, virgülle ayrılmış veya otomatik)' : 'Afleiders (uit andere verzen, of automatisch)',
-    autoDistract: tr ? 'Otomatik yanıltıcı ekle' : 'Automatische afleiders',
-    verseError: tr ? 'Ayet yüklenemedi' : 'Vers kon niet geladen worden',
+    verseError: tr ? 'Ayet yüklenemedi, tekrar deneyin' : 'Vers kon niet geladen worden, probeer opnieuw',
     needName: tr ? 'Sınav adı gerekli' : 'Naam van de toets is verplicht',
     needQuestions: tr ? 'En az bir soru ekleyin' : 'Voeg minimaal één vraag toe',
     undo: tr ? 'Geri al' : 'Ongedaan maken',
     redo: tr ? 'Yinele' : 'Opnieuw',
+    dragHint: tr ? 'Sıralamayı değiştirmek için sürükleyin' : 'Sleep om te herordenen',
   };
 
-  const { state: draft, set, undo, redo, canUndo, canRedo } = useHistory<ExamDraft>(initial);
+  const { state: draft, set, setLive, commitLive, undo, redo, canUndo, canRedo } = useHistory<ExamDraft>(initial);
   const [saving, setSaving] = useState(false);
   const [verseLoading, setVerseLoading] = useState<string | null>(null);
   const [verseInputs, setVerseInputs] = useState<Record<string, { surah: string; ayah: string; words?: string[] }>>({});
@@ -76,6 +76,11 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
 
   const updateQuestion = (id: string, patch: Partial<ExamQuestion>) =>
     set((d) => ({ ...d, questions: d.questions.map((q) => (q.id === id ? { ...q, ...patch } : q)) }));
+
+  // Text-heavy edits (prompt, options, gap answer) checkpoint history after a
+  // pause instead of per keystroke, so undo doesn't take one step per letter.
+  const updateQuestionLive = (id: string, patch: Partial<ExamQuestion>) =>
+    setLive((d) => ({ ...d, questions: d.questions.map((q) => (q.id === id ? { ...q, ...patch } : q)) }));
 
   const addQuestion = (type: QuestionType) => {
     const base: ExamQuestion = { id: uid(), type, prompt: '', points: 1 };
@@ -89,15 +94,67 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
   const removeQuestion = (id: string) =>
     set((d) => ({ ...d, questions: d.questions.filter((q) => q.id !== id) }));
 
-  const moveQuestion = (id: string, dir: -1 | 1) =>
-    set((d) => {
-      const i = d.questions.findIndex((q) => q.id === id);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= d.questions.length) return d;
-      const qs = [...d.questions];
-      [qs[i], qs[j]] = [qs[j], qs[i]];
-      return { ...d, questions: qs };
+  // ---- Drag-and-drop reordering -----------------------------------------
+  // Dragging previews the new order live (no history entries per hover);
+  // the final order is committed as one undo step on drop.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [localOrder, setLocalOrder] = useState<ExamQuestion[] | null>(null);
+  const questions = localOrder || draft.questions;
+
+  const handleDragStart = (id: string) => () => {
+    setLocalOrder(draft.questions);
+    setDragId(id);
+  };
+
+  const handleDragOver = (overId: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!dragId || dragId === overId) return;
+    setLocalOrder((prev) => {
+      const cur = prev || draft.questions;
+      const from = cur.findIndex((q) => q.id === dragId);
+      const to = cur.findIndex((q) => q.id === overId);
+      if (from === -1 || to === -1 || from === to) return cur;
+      const next = [...cur];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
     });
+  };
+
+  const finishDrag = () => {
+    if (localOrder) set((d) => ({ ...d, questions: localOrder }));
+    setLocalOrder(null);
+    setDragId(null);
+  };
+
+  // FLIP-style animation: whenever the visible question order changes,
+  // animate each row from its previous position to its new one instead of
+  // letting it jump — this is what makes reordering (and drag preview) read
+  // as smooth rather than jittery.
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevRects = useRef<Map<string, DOMRect>>(new Map());
+  const orderKey = questions.map((q) => q.id).join(',');
+  useLayoutEffect(() => {
+    const nextRects = new Map<string, DOMRect>();
+    rowRefs.current.forEach((el, id) => { nextRects.set(id, el.getBoundingClientRect()); });
+    rowRefs.current.forEach((el, id) => {
+      const prev = prevRects.current.get(id);
+      const next = nextRects.get(id);
+      if (prev && next) {
+        const dy = prev.top - next.top;
+        if (Math.abs(dy) > 1) {
+          el.style.transition = 'none';
+          el.style.transform = `translateY(${dy}px)`;
+          requestAnimationFrame(() => {
+            el.style.transition = 'transform 220ms cubic-bezier(0.2, 0, 0, 1)';
+            el.style.transform = '';
+          });
+        }
+      }
+    });
+    prevRects.current = nextRects;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderKey]);
 
   const loadVerse = async (q: ExamQuestion) => {
     const input = verseInputs[q.id];
@@ -147,6 +204,7 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
   };
 
   const save = async () => {
+    commitLive();
     if (!draft.name.trim()) { notify.error(text.needName); return; }
     if (draft.questions.length === 0) { notify.error(text.needQuestions); return; }
     setSaving(true);
@@ -157,7 +215,7 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow';
 
   return (
     <div className="space-y-4">
@@ -165,16 +223,16 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-1.5">
           <button onClick={undo} disabled={!canUndo} title={text.undo}
-            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">
+            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition">
             <Undo2 className="h-4 w-4" />
           </button>
           <button onClick={redo} disabled={!canRedo} title={text.redo}
-            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">
+            className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition">
             <Redo2 className="h-4 w-4" />
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onCancel} className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">{text.cancel}</button>
+          <button onClick={onCancel} className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition">{text.cancel}</button>
           <button onClick={save} disabled={saving}
             className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50">
             {saving ? '...' : text.save}
@@ -187,7 +245,9 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
         <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-600 mb-1">{text.name} *</label>
           <input value={draft.name} lang={spellLang} spellCheck
-            onChange={(e) => set((d) => ({ ...d, name: e.target.value }))} className={inputCls} />
+            onChange={(e) => setLive((d) => ({ ...d, name: e.target.value }))}
+            onBlur={commitLive}
+            className={inputCls} />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">{text.level} *</label>
@@ -217,26 +277,45 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
       </div>
 
       {/* Questions */}
-      {draft.questions.map((q, qi) => (
-        <div key={q.id} className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
-              {qi + 1}. {text.types[q.type]}
-            </span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => moveQuestion(q.id, -1)} className="p-1.5 text-gray-400 hover:text-gray-600" title="↑"><ArrowUp className="h-4 w-4" /></button>
-              <button onClick={() => moveQuestion(q.id, 1)} className="p-1.5 text-gray-400 hover:text-gray-600" title="↓"><ArrowDown className="h-4 w-4" /></button>
-              <input type="number" min={1} value={q.points} title={text.points}
-                onChange={(e) => updateQuestion(q.id, { points: Math.max(1, Number(e.target.value) || 1) })}
-                className="w-14 px-2 py-1 text-xs border border-gray-300 rounded-lg text-center" />
-              <button onClick={() => removeQuestion(q.id)} className="p-1.5 text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+      {questions.map((q, qi) => (
+        <div
+          key={q.id}
+          ref={(el) => { if (el) rowRefs.current.set(q.id, el); else rowRefs.current.delete(q.id); }}
+          onDragOver={handleDragOver(q.id)}
+          onDrop={finishDrag}
+          className={`bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-4 space-y-3 transition-shadow ${dragId === q.id ? 'opacity-40 shadow-lg' : ''} ${dragId && dragId !== q.id ? 'ring-emerald-200' : ''}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                draggable
+                onDragStart={handleDragStart(q.id)}
+                onDragEnd={finishDrag}
+                title={text.dragHint}
+                className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition shrink-0 touch-none"
+              >
+                <GripVertical className="h-4 w-4" />
+              </span>
+              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full whitespace-nowrap">
+                {qi + 1}. {text.types[q.type]}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="flex items-center gap-1 text-[10px] text-gray-400 font-medium" title={text.pointsForQuestion}>
+                {text.points}
+                <input type="number" min={1} value={q.points}
+                  onChange={(e) => updateQuestion(q.id, { points: Math.max(1, Number(e.target.value) || 1) })}
+                  className="w-12 px-1.5 py-1 text-xs border border-gray-300 rounded-lg text-center text-gray-700 font-semibold" />
+              </label>
+              <button onClick={() => removeQuestion(q.id)} className="p-1.5 text-red-400 hover:text-red-600 transition"><Trash2 className="h-4 w-4" /></button>
             </div>
           </div>
 
           {q.type !== 'qurangap' && (
             <textarea value={q.prompt} lang={spellLang} spellCheck rows={2}
               placeholder={text.prompt}
-              onChange={(e) => updateQuestion(q.id, { prompt: e.target.value })}
+              onChange={(e) => updateQuestionLive(q.id, { prompt: e.target.value })}
+              onBlur={commitLive}
               className={`${inputCls} resize-none`} />
           )}
 
@@ -253,20 +332,21 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
                     }}
                     className="accent-emerald-600 shrink-0" />
                   <input value={opt} lang={spellLang} spellCheck
-                    onChange={(e) => updateQuestion(q.id, { options: (q.options || []).map((o, i) => (i === oi ? e.target.value : o)) })}
+                    onChange={(e) => updateQuestionLive(q.id, { options: (q.options || []).map((o, i) => (i === oi ? e.target.value : o)) })}
+                    onBlur={commitLive}
                     className={inputCls} />
                   {(q.options || []).length > 3 && (
                     <button onClick={() => {
                       const opts = (q.options || []).filter((_, i) => i !== oi);
                       const cor = (Array.isArray(q.correct) ? q.correct : []).filter((x) => x !== oi).map((x) => (x > oi ? x - 1 : x));
                       updateQuestion(q.id, { options: opts, correct: cor });
-                    }} className="p-1 text-red-400 hover:text-red-600 shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                    }} className="p-1 text-red-400 hover:text-red-600 shrink-0 transition"><Trash2 className="h-3.5 w-3.5" /></button>
                   )}
                 </div>
               ))}
               {(q.options || []).length < 6 && (
                 <button onClick={() => updateQuestion(q.id, { options: [...(q.options || []), ''] })}
-                  className="text-xs font-medium text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1">
+                  className="text-xs font-medium text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 transition">
                   <Plus className="h-3.5 w-3.5" />{text.addOption}
                 </button>
               )}
@@ -289,7 +369,9 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">{text.gapAnswer}</label>
               <input value={typeof q.correct === 'string' ? q.correct : ''} lang={spellLang} spellCheck
-                onChange={(e) => updateQuestion(q.id, { correct: e.target.value })} className={inputCls} />
+                onChange={(e) => updateQuestionLive(q.id, { correct: e.target.value })}
+                onBlur={commitLive}
+                className={inputCls} />
             </div>
           )}
 

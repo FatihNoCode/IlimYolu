@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Send, Archive, Check, X, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
-import { notify } from './ui/feedback';
+import { notify, confirmDialog } from './ui/feedback';
 
 interface CaseRecord {
   id: string;
@@ -47,15 +47,17 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
   const text = language === 'tr' ? {
     title: 'Vakalar',
     intro: role === 'teacher'
-      ? 'Öğrenciler hakkında vaka oluşturun (ör. tekrarlanan kötü davranış veya kavga) ve gerekirse yerel yöneticiye iletin.'
-      : 'Öğretmenlerin ilettiği vakaları görüntüleyin ve durumlarını güncelleyin.',
+      ? 'Öğrenciler hakkında bir vaka oluşturun ve gerekirse yerel yöneticiye iletin.'
+      : 'Öğretmenlerin size ilettiği vakaları görüntüleyin ve durumlarını güncelleyin.',
     newCase: 'Yeni Vaka',
     students: 'Öğrenciler',
+    parentContactHint: 'Veli e-postası ve telefonu, seçilen öğrenci(ler)e göre sistemden otomatik alınır.',
+    explanation: 'Ne oldu?',
+    explanationPlaceholder: 'Ne oldu?',
+    desiredAction: 'Ne yapılmasını istiyorsunuz?',
+    desiredActionPlaceholder: 'Ne yapılmasını istiyorsunuz?',
     parentEmail: 'Veli e-postası',
     parentPhone: 'Veli telefonu',
-    autofillHint: 'Boş bırakılırsa sistemdeki veli bilgileri otomatik kullanılır.',
-    explanation: 'Ne oldu?',
-    desiredAction: 'Ne yapılmasını istiyorsunuz?',
     create: 'Vaka Oluştur',
     cancel: 'İptal',
     forward: 'Yöneticiye İlet',
@@ -72,21 +74,26 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
     showArchived: 'Arşivi göster',
     hideArchived: 'Arşivi gizle',
     delete: 'Sil',
+    deleteConfirmTitle: 'Vakayı sil',
+    deleteConfirmDesc: 'Bu vakayı kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+    deleteConfirmLabel: 'Evet, sil',
     selectStudents: 'En az bir öğrenci seçin',
     fillFields: 'Lütfen açıklama alanlarını doldurun',
     saved: 'Kaydedildi',
   } : {
     title: 'Cases',
     intro: role === 'teacher'
-      ? 'Maak een case aan over leerlingen (bijv. aanhoudend wangedrag of een vechtpartij) en stuur deze zo nodig door naar de lokale beheerder.'
-      : 'Bekijk cases die docenten hebben doorgestuurd en werk hun status bij.',
+      ? 'Maak een case aan over leerlingen en stuur deze zo nodig door naar de lokale beheerder.'
+      : 'Bekijk cases die docenten naar u hebben doorgestuurd en werk hun status bij.',
     newCase: 'Nieuwe case',
     students: 'Leerlingen',
+    parentContactHint: 'E-mail en telefoon van de ouder worden automatisch overgenomen op basis van de geselecteerde leerling(en).',
+    explanation: 'Wat is er gebeurd?',
+    explanationPlaceholder: 'Wat is er gebeurd?',
+    desiredAction: 'Wat wilt u dat er gebeurt?',
+    desiredActionPlaceholder: 'Wat wilt u dat er gebeurt?',
     parentEmail: 'E-mail ouder',
     parentPhone: 'Telefoon ouder',
-    autofillHint: 'Leeg laten = de oudergegevens uit het systeem worden automatisch gebruikt.',
-    explanation: 'Wat is er gebeurd?',
-    desiredAction: 'Wat wilt u dat er gebeurt?',
     create: 'Case aanmaken',
     cancel: 'Annuleren',
     forward: 'Doorsturen naar beheerder',
@@ -103,6 +110,9 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
     showArchived: 'Toon archief',
     hideArchived: 'Verberg archief',
     delete: 'Verwijderen',
+    deleteConfirmTitle: 'Case verwijderen',
+    deleteConfirmDesc: 'Weet u zeker dat u deze case permanent wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+    deleteConfirmLabel: 'Ja, verwijderen',
     selectStudents: 'Selecteer minimaal één leerling',
     fillFields: 'Vul beide toelichtingen in',
     saved: 'Opgeslagen',
@@ -118,8 +128,6 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
 
   // Create form
   const [selStudents, setSelStudents] = useState<string[]>([]);
-  const [parentEmail, setParentEmail] = useState('');
-  const [parentPhone, setParentPhone] = useState('');
   const [explanation, setExplanation] = useState('');
   const [desiredAction, setDesiredAction] = useState('');
   const [creating, setCreating] = useState(false);
@@ -159,15 +167,13 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
         method: 'POST',
         body: JSON.stringify({
           studentIds: selStudents,
-          parentEmail: parentEmail.trim(),
-          parentPhone: parentPhone.trim(),
           explanation: explanation.trim(),
           desiredAction: desiredAction.trim(),
         }),
       });
       notify.success(text.saved);
       setShowCreate(false);
-      setSelStudents([]); setParentEmail(''); setParentPhone(''); setExplanation(''); setDesiredAction('');
+      setSelStudents([]); setExplanation(''); setDesiredAction('');
       await load();
     } catch (err: any) {
       notify.error(err.message || 'Error');
@@ -240,27 +246,17 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
               })}
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{text.parentEmail}</label>
-              <input type="email" value={parentEmail} onChange={(e) => setParentEmail(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{text.parentPhone}</label>
-              <input type="tel" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            </div>
-          </div>
-          <p className="text-[11px] text-gray-400 -mt-1">{text.autofillHint}</p>
+          <p className="text-[11px] text-gray-400 -mt-1">{text.parentContactHint}</p>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">{text.explanation}</label>
             <textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} rows={3}
+              placeholder={text.explanationPlaceholder}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">{text.desiredAction}</label>
             <textarea value={desiredAction} onChange={(e) => setDesiredAction(e.target.value)} rows={2}
+              placeholder={text.desiredActionPlaceholder}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" />
           </div>
           <div className="flex gap-2 justify-end">
@@ -377,10 +373,20 @@ export default function CasesView({ language, apiRequest, role, currentUserId }:
                           </button>
                         </>
                       )}
-                      {(mine || role === 'admin') && cs.status !== 'archived' && (
+                      {mine && (
                         <button
                           disabled={busy}
-                          onClick={() => doAction(cs.id, () => apiRequest(`/cases/${cs.id}`, { method: 'DELETE' }))}
+                          onClick={async () => {
+                            const ok = await confirmDialog({
+                              title: text.deleteConfirmTitle,
+                              description: text.deleteConfirmDesc,
+                              confirmLabel: text.deleteConfirmLabel,
+                              cancelLabel: text.cancel,
+                              destructive: true,
+                            });
+                            if (!ok) return;
+                            doAction(cs.id, () => apiRequest(`/cases/${cs.id}`, { method: 'DELETE' }));
+                          }}
                           className="text-xs font-medium text-red-500 hover:text-red-700 px-2 py-1.5"
                         >
                           {text.delete}

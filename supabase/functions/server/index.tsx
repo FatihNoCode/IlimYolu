@@ -3605,19 +3605,21 @@ app.get("/make-server-6679cacd/behavior/:studentId", async (c) => {
 });
 
 // ============= CASES ROUTES =============
-// A "case" is a teacher/admin dossier about one or more students (persistent
-// misbehaviour, a fight, ...). Teachers can forward a case to the local
-// admin, who works it through viewed -> planned -> fixed (with a mandatory
+// A "case" is a teacher/admin dossier about one or more students (e.g.
+// persistent misbehaviour). Teachers can forward a case to the local admin,
+// who works it through viewed -> planned -> fixed (with a mandatory
 // comment); after the creating teacher reads the comment it is archived.
 
 async function getCaseOr404(id: string) {
   return await kv.get(`case:${id}`);
 }
 
-// Which cases is this user allowed to see? Admin: every case in their
-// school. Teacher: cases they created, plus cases whose students overlap
-// with the students of their own classes (so teachers of the same students
-// see each other's cases).
+// Which cases is this user allowed to see? Admin: cases they created
+// themselves, plus other teachers' cases only once forwarded to them — an
+// admin must not see a teacher's case while it's still a private draft.
+// Teacher: cases they created, plus cases whose students overlap with the
+// students of their own classes (so teachers of the same students see each
+// other's cases).
 async function casesVisibleTo(userId: string, userData: any): Promise<any[]> {
   const schoolIds = await getUserSchoolIds(userId, userData);
   let all: any[] = [];
@@ -3627,7 +3629,9 @@ async function casesVisibleTo(userId: string, userData: any): Promise<any[]> {
       all = all.concat((await kv.mget(ids.map((id: string) => `case:${id}`))).filter((cs: any) => cs && cs.id));
     }
   }
-  if (userData.role === 'admin' || userData.role === 'superadmin') return all;
+  if (userData.role === 'admin' || userData.role === 'superadmin') {
+    return all.filter((cs: any) => cs.createdBy === userId || cs.status !== 'open');
+  }
   if (userData.role === 'teacher') {
     const classIds: string[] = await kv.get(`teacher_classes:${userId}`) || [];
     const myStudents = (await kv.getByPrefix('student:')).filter((s: any) => s && s.classId && classIds.includes(s.classId));
@@ -3834,15 +3838,16 @@ app.post("/make-server-6679cacd/cases/:id/ack", async (c) => {
   }
 });
 
+// Only the creator may delete their own case — an admin cannot delete a
+// teacher's case (or vice versa), matching the UI which only offers the
+// delete button on cases the caller created themselves.
 app.delete("/make-server-6679cacd/cases/:id", async (c) => {
   try {
     const { user, error } = await verifyUser(c.req.raw);
     if (error) return c.json({ error }, 401);
-    const userData = await getUserData(user.id);
     const record = await getCaseOr404(c.req.param('id'));
     if (!record) return c.json({ error: 'Not found' }, 404);
-    const isSchoolAdmin = (userData?.role === 'admin' && userData.schoolId === record.schoolId) || userData?.role === 'superadmin';
-    if (record.createdBy !== user.id && !isSchoolAdmin) return c.json({ error: 'Unauthorized' }, 403);
+    if (record.createdBy !== user.id) return c.json({ error: 'Unauthorized' }, 403);
     await kv.del(`case:${record.id}`);
     const ids: string[] = await kv.get(`case_ids:${record.schoolId}`) || [];
     await kv.set(`case_ids:${record.schoolId}`, ids.filter((id: string) => id !== record.id));
