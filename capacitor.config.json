@@ -6,5 +6,8 @@
     "contentInset": "never",
     "backgroundColor": "#059669",
     "limitsNavigationsToAppBoundDomains": false
+  },
+  "android": {
+    "backgroundColor": "#059669"
   }
 }

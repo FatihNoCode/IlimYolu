@@ -1,0 +1,31 @@
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
+# Capacitor 8's podspec sets a 15.0 minimum. The Capacitor CLI pinned in this
+# repo is v7 (v8's CLI needs Node >= 22) and its template still emits 14.0, so
+# this has to be corrected by hand — leaving it at 14.0 makes `pod install` fail
+# to resolve Capacitor at all. Keep in sync with IPHONEOS_DEPLOYMENT_TARGET in
+# App.xcodeproj/project.pbxproj.
+platform :ios, '15.0'
+use_frameworks!
+
+# workaround to avoid Xcode caching of Pods that requires
+# Product -> Clean Build Folder after new Cordova plugins installed
+# Requires CocoaPods 1.6 or newer
+install! 'cocoapods', :disable_input_output_paths => true
+
+def capacitor_pods
+  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorApp', :path => '../../node_modules/@capacitor/app'
+  pod 'CapacitorBrowser', :path => '../../node_modules/@capacitor/browser'
+  pod 'CapacitorHaptics', :path => '../../node_modules/@capacitor/haptics'
+end
+
+target 'App' do
+  capacitor_pods
+  # Add your Pods here
+end
+
+post_install do |installer|
+  assertDeploymentTarget(installer)
+end

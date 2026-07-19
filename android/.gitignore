@@ -105,3 +105,6 @@ app/src/main/res/xml/config.xml
 /app/src/main/assets/public
 /app/src/main/assets/capacitor.config.json
 /app/src/main/assets/capacitor.plugins.json
+
+# Android Studio project settings — local editor state, not project config.
+/.idea/
