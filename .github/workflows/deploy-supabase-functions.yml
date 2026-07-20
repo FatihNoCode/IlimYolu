@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/**'
+      # Without this, a change to the deploy itself (a CLI bump, a fix to a
+      # failed run) does not re-run the deploy, so a recovery commit silently
+      # does nothing and the function stays on the last good version.
+      - '.github/workflows/deploy-supabase-functions.yml'
   workflow_dispatch:
 
 jobs:
