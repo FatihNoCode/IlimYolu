@@ -222,7 +222,7 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
           <>
             <button
               onClick={onShowDemo}
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-gray-50"
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition active:bg-gray-50"
             >
               <PlayCircle className="h-5 w-5 text-gray-400" />
               <span className="flex-1 text-sm font-medium text-gray-700">{text.demo}</span>
@@ -233,7 +233,7 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
         )}
         <a
           href="/privacy"
-          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-gray-50"
+          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition active:bg-gray-50"
         >
           <Shield className="h-5 w-5 text-gray-400" />
           <span className="flex-1 text-sm font-medium text-gray-700">{text.privacy}</span>

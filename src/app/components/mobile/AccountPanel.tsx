@@ -269,7 +269,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
       <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
         <button
           onClick={() => setShowNotifications(true)}
-          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-gray-50"
+          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition active:bg-gray-50"
         >
           <Bell className="h-5 w-5 text-gray-400" />
           <span className="flex-1 text-sm font-medium text-gray-700">{text.notifications}</span>
@@ -283,7 +283,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
         <div className="border-t border-gray-100" />
         <button
           onClick={onLogout}
-          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-red-50"
+          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition active:bg-red-50"
         >
           <LogOut className="h-5 w-5 text-red-500" />
           <span className="flex-1 text-sm font-medium text-red-600">{text.logout}</span>
@@ -295,7 +295,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
             setDeleteConfirm('');
             setDeleteError('');
           }}
-          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-red-50"
+          className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition active:bg-red-50"
         >
           <Trash2 className="h-5 w-5 text-gray-400" />
           <span className="flex-1 text-sm font-medium text-gray-500">{text.deleteAccount}</span>
@@ -331,7 +331,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
                   <button
                     key={n.id}
                     onClick={() => clickNotification(n)}
-                    className={`block w-full border-b border-gray-50 px-4 py-3 text-left transition hover:bg-gray-50 ${
+                    className={`block w-full border-b border-gray-50 px-4 py-3 text-left transition active:bg-gray-50 ${
                       !n.read ? 'bg-emerald-50/50' : ''
                     }`}
                   >

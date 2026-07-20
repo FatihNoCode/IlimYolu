@@ -447,8 +447,10 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="size-full flex items-center justify-center bg-gray-50">
-        <div className="text-lg text-emerald-800">Yükleniyor... / Laden...</div>
+      <div className="size-full flex flex-col items-center justify-center gap-5 bg-gray-50">
+        <img src={logoUrl} alt="Rahman Eğitim" className="h-16 w-16 object-contain" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+        <span className="sr-only">Yükleniyor... / Laden...</span>
       </div>
     );
   }
