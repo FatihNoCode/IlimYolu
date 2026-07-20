@@ -12,9 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pinned, not `latest`. `latest` resolves through the CLI's prerelease
+      # line (v2.110.0-beta.*), and a broken beta takes this deploy down with
+      # it — which is exactly how the 7eef12a deploy failed while the Pages
+      # deploy succeeded, leaving the frontend live against a stale backend.
+      # Bump this deliberately.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.109.1
       - run: supabase functions deploy make-server-6679cacd --project-ref uriirwsjpzsjnaosqlph --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
