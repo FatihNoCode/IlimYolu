@@ -13,6 +13,8 @@
 //  2. It never leaves the device on its own. The user opens Voorkeuren, sees
 //     exactly what it says, and chooses to share it.
 
+import { APP_VERSION } from './version';
+
 export type LogLevel = 'action' | 'error';
 
 export interface LogEntry {
@@ -90,6 +92,7 @@ export function pruneDeviceLog() {
 export function formatDeviceLog(): string {
   const header = [
     `Rahman Egitim — logboek`,
+    `Versie: ${APP_VERSION}`,
     `Datum: ${new Date().toLocaleString()}`,
     `Platform: ${navigator.userAgent}`,
     '',

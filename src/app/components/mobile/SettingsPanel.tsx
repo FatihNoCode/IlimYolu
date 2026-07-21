@@ -4,6 +4,7 @@ import { useApp, isDemoFamily } from '../../App';
 import TestRoleSwitcher from '../TestRoleSwitcher';
 import { type MobileNavItem, VISIBLE_SLOTS } from './navPrefs';
 import { selectionStart, selectionChanged, selectionEnd } from '../../../lib/haptics';
+import { APP_VERSION } from '../../../lib/version';
 import {
   clearDeviceLog,
   formatDeviceLog,
@@ -394,7 +395,9 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
         </div>
         <div className="mt-2 flex items-center justify-between text-sm">
           <span className="text-gray-500">Rahman Eğitim</span>
-          <span className="text-gray-400">{text.version} 1.0</span>
+          {/* Selectable: the whole point is that it can be read back to
+              someone, or pasted into a bug report. */}
+          <span className="selectable text-gray-400">{text.version} {APP_VERSION}</span>
         </div>
       </div>
     </div>

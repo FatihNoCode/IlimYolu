@@ -7,6 +7,7 @@ import { validatePassword } from '../../lib/password';
 import { isNative, getAuthRedirectTo } from '../../lib/native';
 import type { Language } from '../App';
 import booksLogo from '../../imports/logo.svg';
+import { APP_VERSION } from '../../lib/version';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
 const supabase = getSupabaseClient();
@@ -717,10 +718,14 @@ export default function LoginPage({ onLogin, language, setLanguage, mfaChallenge
           {language === 'tr' ? 'Çocuğumu/çocuklarımı kaydettirmek istiyorum' : 'Ik wil mijn kind(eren) inschrijven'}
         </button>
 
-        <div className="mt-4 text-center">
-          <a href="/privacy" className="text-gray-400 hover:text-gray-600 text-xs transition">
+        <div className="mt-4 flex items-center justify-center gap-2 text-xs">
+          <a href="/privacy" className="text-gray-400 hover:text-gray-600 transition">
             {language === 'tr' ? 'Gizlilik Politikası' : 'Privacybeleid'}
           </a>
+          <span className="text-gray-300">·</span>
+          {/* Readable before anyone signs in, so "which build is on this
+              phone?" can be answered without an account. */}
+          <span className="selectable text-gray-300">v{APP_VERSION}</span>
         </div>
       </div>
     </div>
