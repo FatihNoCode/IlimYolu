@@ -134,12 +134,36 @@ function PendingApprovalScreen({ email, language, onSignOut }: { email: string; 
   );
 }
 
+// The chosen language, kept across launches. Without this the app reset to
+// Dutch every cold start, so a Turkish-speaking parent had to re-pick it each
+// time they opened it — the one setting that must survive being force-quit.
+const LANGUAGE_KEY = 'ilimyolu:language';
+
+function storedLanguage(): Language {
+  try {
+    const v = localStorage.getItem(LANGUAGE_KEY);
+    return v === 'tr' || v === 'nl' ? v : 'nl';
+  } catch {
+    return 'nl';
+  }
+}
+
 export default function App() {
-  const [language, setLanguage] = useState<Language>('nl');
+  const [language, setLanguageState] = useState<Language>(storedLanguage);
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    try {
+      localStorage.setItem(LANGUAGE_KEY, lang);
+    } catch {
+      /* private mode / storage full — the choice just won't outlive the session */
+    }
+  };
+
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // The cold-start greeting needs a moment to type itself out, and session
+  // The cold-start greeting is written out a character at a time, and session
   // checks usually finish sooner. Hold the splash until the line has actually
   // landed (GreetingSplash reports it), with a ceiling so a stalled animation
   // can never strand the app on the splash. Only in the app layout; on the web
@@ -246,7 +270,7 @@ export default function App() {
 
   useEffect(() => {
     if (!splashHeld) return;
-    const id = setTimeout(() => setSplashHeld(false), 4000);
+    const id = setTimeout(() => setSplashHeld(false), 7000);
     return () => clearTimeout(id);
   }, []);
 

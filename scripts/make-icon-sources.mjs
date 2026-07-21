@@ -25,14 +25,18 @@ async function logoLayer(frac) {
 async function main() {
   const out = (name) => fileURLToPath(new URL(`../assets/${name}`, import.meta.url));
 
-  // Legacy square icon: logo on the brand background.
+  // Legacy square icon: logo on the brand background. The fractions below are
+  // of the *trimmed* artwork — logo.svg's viewBox is now tight to the mark. It
+  // used to carry ~30% margin of its own, which multiplied with the fraction
+  // here and left the home-screen icon a small logo adrift in white.
   await sharp({ create: { width: S, height: S, channels: 4, background: BG } })
-    .composite([{ input: await (await logoLayer(0.66)).toBuffer(), gravity: 'center' }])
+    .composite([{ input: await (await logoLayer(0.80)).toBuffer(), gravity: 'center' }])
     .png().toFile(out('icon-only.png'));
 
-  // Adaptive icon layers. Foreground stays inside the safe zone (~60%) since
-  // the launcher masks it to a circle/squircle and can shift it.
-  await (await logoLayer(0.58)).toFile(out('icon-foreground.png'));
+  // Adaptive icon layers. Foreground stays inside the safe zone — Android
+  // guarantees only the inner 72/108 (~66%) survives the launcher's mask and
+  // parallax, so this cannot chase the square icon's 0.80.
+  await (await logoLayer(0.62)).toFile(out('icon-foreground.png'));
   await sharp({ create: { width: S, height: S, channels: 4, background: BG } })
     .png().toFile(out('icon-background.png'));
 

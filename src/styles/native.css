@@ -230,9 +230,19 @@
   }
 }
 
-@keyframes greeting-caret {
-  50% {
+/* One character of the greeting fading up. The blur and the small rise are
+   what make it read as ink settling rather than as text switching on; the
+   fades overlap (see FADE_MS vs STEP_MS) so the line flows. */
+@keyframes greeting-char {
+  from {
     opacity: 0;
+    filter: blur(6px);
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
   }
 }
 
@@ -243,9 +253,11 @@
       transform: none;
     }
   }
-  @keyframes greeting-caret {
-    50% {
-      opacity: 1;
+  @keyframes greeting-char {
+    from {
+      opacity: 0;
+      filter: none;
+      transform: none;
     }
   }
 }
