@@ -7,11 +7,14 @@ import {
   computeStudentSignals,
   computeExamAnalysis,
   buildTodayFeed,
+  buildAdminFeed,
+  computeAbsenceFlags,
   weakTopics,
   needsGrading,
   diffSignals,
   snapshotOf,
   type SignalContext,
+  type FeedItem,
 } from "./signals.tsx";
 
 const app = new Hono();
@@ -3850,7 +3853,16 @@ app.post("/make-server-6679cacd/cases/:id/forward", async (c) => {
     }
     if (record.status !== 'open') return c.json({ error: 'Case is already forwarded' }, 400);
 
-    const updated = { ...record, status: 'forwarded', forwardedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const updated = {
+      ...record,
+      status: 'forwarded',
+      forwardedAt: new Date().toISOString(),
+      // Separate from updatedAt, which any edit bumps: the beheerder worklist
+      // asks how long a case has sat *in this status*, and a dossier can be
+      // commented on weekly while never actually moving forward.
+      statusChangedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     await kv.set(`case:${record.id}`, updated);
 
     const admins = (await kv.getByPrefix('user:')).filter(
@@ -3902,6 +3914,9 @@ app.put("/make-server-6679cacd/cases/:id/status", async (c) => {
       status,
       adminComment: status === 'fixed' ? String(comment).trim() : record.adminComment,
       fixedAt: status === 'fixed' ? new Date().toISOString() : record.fixedAt,
+      // Only moves when the status actually changes — see the note on the
+      // forward route.
+      statusChangedAt: status !== record.status ? new Date().toISOString() : record.statusChangedAt,
       updatedAt: new Date().toISOString(),
     };
     await kv.set(`case:${record.id}`, updated);
@@ -8141,6 +8156,10 @@ async function loadSignalScope(userId: string, userData: any, schoolFilter?: str
   const allAttempts = await kv.getByPrefix('exam_attempt:');
   const attempts = allAttempts.filter((a: any) => a?.studentId && studentIds.has(a.studentId));
 
+  // Sick-notes, needed to tell "absent, and the parents told us" apart from
+  // "absent, and nobody told us anything" — see computeAbsenceFlags.
+  const allNotifications = await kv.getByPrefix('absence_notification:');
+
   return {
     classes,
     students,
@@ -8148,6 +8167,7 @@ async function loadSignalScope(userId: string, userData: any, schoolFilter?: str
     ctx: {
       students,
       classes,
+      notifications: allNotifications.filter((n: any) => n?.studentId && studentIds.has(n.studentId)),
       attendance: allAttendance.filter((a: any) => a?.classId && classIds.has(a.classId)),
       behavior: allBehavior.filter((b: any) => b?.studentId && studentIds.has(b.studentId)),
       homework: allHomework.filter((h: any) => h?.classId && classIds.has(h.classId)),
@@ -8177,6 +8197,30 @@ app.get("/make-server-6679cacd/signals/students", async (c) => {
   }
 });
 
+// ── Ticked-off tasks ────────────────────────────────────────────────────────
+//
+// A task disappears from the feed once someone ticks it, and reappears in the
+// archive at the bottom of the start screen. Completion is stored per *scope*,
+// not per user: a beheerder's tasks belong to the school, so if two beheerders
+// share one school the one who rang the parents clears it for both. A teacher's
+// tasks are their own, since nobody else can register their lesson for them.
+//
+// The occurrence lives in the task key (`payment_reminder:2026-11`), so ticking
+// off November never hides February and the archive reads as a history.
+async function taskScope(c: any, userId: string, userData: any): Promise<string> {
+  if (userData?.role === 'teacher') return `user:${userId}`;
+  const explicit = c.req.header('X-School-Id');
+  if (explicit) return `school:${explicit}`;
+  if (userData?.schoolId) return `school:${userData.schoolId}`;
+  const ids = [...(await getUserSchoolIds(userId, userData))].sort();
+  return ids.length ? `school:${ids[0]}` : `user:${userId}`;
+}
+
+async function completedTasks(scope: string): Promise<any[]> {
+  const rows = await kv.getByPrefix(`task_done:${scope}:`);
+  return rows.filter((r: any) => r?.key);
+}
+
 // The "what needs me today" feed for the signed-in user's role.
 app.get("/make-server-6679cacd/signals/today", async (c) => {
   try {
@@ -8190,65 +8234,205 @@ app.get("/make-server-6679cacd/signals/today", async (c) => {
     const today = new Date().toISOString().slice(0, 10);
     const { classes, ctx } = await loadSignalScope(user.id, userData, c.req.header('X-School-Id') || undefined);
     const studentSignals = computeStudentSignals(ctx);
-
-    // Only nag about attendance on a day that actually has lessons.
-    const schoolId = classes.find((cl: any) => cl.schoolId)?.schoolId;
-    let lessonToday = false;
-    if (schoolId) {
-      const lesstructuren = await getLesstructurenForSchool(schoolId);
-      const active = lesstructuren.find((ls: any) => today >= ls.startDate && today <= ls.endDate);
-      lessonToday = !!active && (active.lessonDays || []).includes(new Date().getDay());
-    }
-
-    // Exams with submitted-but-ungraded open answers, grouped per exam.
-    const ungradedExams: Array<{ examId: string; title: string; pending: number }> = [];
     const schoolIds = await getUserSchoolIds(user.id, userData);
-    const exams = (await kv.getByPrefix('exam:')).filter((e: any) => e?.id && schoolIds.has(e.schoolId));
-    for (const exam of exams) {
-      const codes: string[] = await kv.get(`exam_live_codes:${exam.id}`) || [];
-      let pending = 0;
-      for (const code of codes) {
-        const attempts = await kv.getByPrefix(`exam_attempt:${code}:`);
-        pending += attempts.filter((a: any) => needsGrading(a)).length;
-      }
-      if (pending > 0) ungradedExams.push({ examId: exam.id, title: exam.title || 'Toets', pending });
-    }
+    const isBeheerder = userData.role !== 'teacher';
 
     const openCases = (await casesVisibleTo(user.id, userData)).filter(
       (k: any) => k && !['fixed', 'archived'].includes(k.status),
     );
 
-    const unbookedConferences: Array<{ sessionId: string; title: string; unbooked: number; date: string }> = [];
     const sessions = (await kv.getByPrefix('oudergesprek:')).filter(
       (s: any) => s?.id && s.schoolId && schoolIds.has(s.schoolId) && s.date >= today,
     );
-    for (const s of sessions) {
-      const unbooked = (s.slots || []).filter((slot: any) => !slot.bookedBy).length;
-      if (unbooked > 0) {
-        unbookedConferences.push({
-          sessionId: s.id,
-          title: s.title || s.className || 'Oudergesprek',
-          unbooked,
-          date: s.date,
-        });
+
+    let feed: FeedItem[];
+
+    if (isBeheerder) {
+      // A beheerder does not teach, so none of the classroom tasks are theirs.
+      // What they get instead is the school's own calendar of obligations, plus
+      // the children the school has lost track of.
+      const schoolId = classes.find((cl: any) => cl.schoolId)?.schoolId
+        || c.req.header('X-School-Id')
+        || userData.schoolId
+        || [...schoolIds][0];
+
+      const registrationIds: string[] = await kv.get('inschrijving_ids') || [];
+      const registrations = await kv.mget(registrationIds.map((id: string) => `inschrijving:${id}`));
+      const pending = registrations.filter(
+        (r: any) => r && (!schoolId || r.schoolId === schoolId) && !['geaccepteerd', 'afgewezen'].includes(r.status),
+      );
+      const latestRegistrationAt = pending
+        .map((r: any) => String(r.ingediendOp || ''))
+        .sort()
+        .pop() || undefined;
+
+      const vacationIds: string[] = schoolId ? (await kv.get(`agenda_vacation_ids:${schoolId}`) || []) : [];
+      const vacations = (await kv.mget(vacationIds.map((id: string) => `agenda_vacation:${id}`))).filter(Boolean);
+
+      const diplomaVisible = schoolId ? await isDiplomaVisible(schoolId) : false;
+
+      // Students who still owe schoolgeld, from the same tiers the reminder
+      // mail uses — one prefix scan rather than a lookup per student.
+      let outstandingPayments = 0;
+      if (schoolId) {
+        const settings = await kv.get(`boekhouding:settings:${schoolId}`) || DEFAULT_BOEKHOUDING_SETTINGS;
+        const tiers = settings.schoolgeld || DEFAULT_BOEKHOUDING_SETTINGS.schoolgeld;
+        const records = await kv.getByPrefix('boekhouding:student:');
+        const byStudent = new Map(records.filter((r: any) => r?.studentId).map((r: any) => [r.studentId, r]));
+        for (const student of ctx.students) {
+          const record = byStudent.get(student.id) || defaultBoekhoudingRecord(student.id);
+          const required = record.isMember
+            ? (record.hasSibling ? tiers.memberWithSibling : tiers.memberNoSibling)
+            : (record.hasSibling ? tiers.noMemberWithSibling : tiers.noMemberNoSibling);
+          if ((Number(record.payments?.schoolgeld) || 0) < required) outstandingPayments++;
+        }
       }
+
+      const LEVELS: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      feed = [
+        ...computeAbsenceFlags(ctx),
+        ...buildAdminFeed({
+          today,
+          upcomingConferences: sessions,
+          openCases,
+          pendingRegistrations: pending.length,
+          latestRegistrationAt,
+          diplomaVisible,
+          vacations,
+          outstandingPayments,
+        }),
+      ].sort((a, b) => LEVELS[b.level] - LEVELS[a.level]);
+    } else {
+      // Only nag about attendance on a day that actually has lessons.
+      const schoolId = classes.find((cl: any) => cl.schoolId)?.schoolId;
+      let lessonToday = false;
+      if (schoolId) {
+        const lesstructuren = await getLesstructurenForSchool(schoolId);
+        const active = lesstructuren.find((ls: any) => today >= ls.startDate && today <= ls.endDate);
+        lessonToday = !!active && (active.lessonDays || []).includes(new Date().getDay());
+      }
+
+      // Exams with submitted-but-ungraded open answers, grouped per exam.
+      const ungradedExams: Array<{ examId: string; title: string; pending: number }> = [];
+      const exams = (await kv.getByPrefix('exam:')).filter((e: any) => e?.id && schoolIds.has(e.schoolId));
+      for (const exam of exams) {
+        const codes: string[] = await kv.get(`exam_live_codes:${exam.id}`) || [];
+        let pending = 0;
+        for (const code of codes) {
+          const attempts = await kv.getByPrefix(`exam_attempt:${code}:`);
+          pending += attempts.filter((a: any) => needsGrading(a)).length;
+        }
+        if (pending > 0) ungradedExams.push({ examId: exam.id, title: exam.title || 'Toets', pending });
+      }
+
+      const unbookedConferences: Array<{ sessionId: string; title: string; unbooked: number; date: string }> = [];
+      for (const s of sessions) {
+        const unbooked = (s.slots || []).filter((slot: any) => !slot.bookedBy).length;
+        if (unbooked > 0) {
+          unbookedConferences.push({
+            sessionId: s.id,
+            title: s.title || s.className || 'Oudergesprek',
+            unbooked,
+            date: s.date,
+          });
+        }
+      }
+
+      feed = buildTodayFeed({
+        role: userData.role,
+        today,
+        classes: lessonToday ? classes : [],
+        attendance: ctx.attendance,
+        ungradedExams,
+        openCases,
+        unbookedConferences,
+        studentSignals,
+      });
     }
 
-    const feed = buildTodayFeed({
-      role: userData.role,
-      today,
-      classes: lessonToday ? classes : [],
-      attendance: ctx.attendance,
-      ungradedExams,
-      openCases,
-      unbookedConferences,
-      studentSignals,
-    });
+    // Anything already ticked off drops out of the feed and lives on in the
+    // archive instead.
+    const done = new Set((await completedTasks(await taskScope(c, user.id, userData))).map((t: any) => t.key));
+    feed = feed.filter((item) => !done.has(item.key));
 
     return c.json({ feed, generatedAt: new Date().toISOString() });
   } catch (err) {
     console.log('Signals today error:', err);
     return c.json({ error: 'Failed to build feed' }, 500);
+  }
+});
+
+// Tick a task off. The title travels with the request so the archive can show
+// what was done without re-deriving a feed that has since moved on.
+app.post("/make-server-6679cacd/signals/tasks/complete", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (!['teacher', 'admin', 'regional_admin', 'superadmin'].includes(userData?.role)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const { key, titleNl, titleTr, link } = await c.req.json();
+    if (!key || typeof key !== 'string') return c.json({ error: 'key required' }, 400);
+
+    const scope = await taskScope(c, user.id, userData);
+    const record = {
+      key,
+      titleNl: String(titleNl || key).slice(0, 300),
+      titleTr: String(titleTr || titleNl || key).slice(0, 300),
+      link: typeof link === 'string' ? link : undefined,
+      completedAt: new Date().toISOString(),
+      completedBy: user.id,
+      completedByName: userData?.name || '',
+    };
+    await kv.set(`task_done:${scope}:${key}`, record);
+    return c.json({ success: true, task: record });
+  } catch (err) {
+    console.log('Complete task error:', err);
+    return c.json({ error: 'Failed to complete task' }, 500);
+  }
+});
+
+// Undo — puts the task back on the worklist. The key travels in the body
+// rather than the path: task keys carry colons and dates, and a path param
+// makes the escaping the client's problem for no benefit.
+app.post("/make-server-6679cacd/signals/tasks/reopen", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (!['teacher', 'admin', 'regional_admin', 'superadmin'].includes(userData?.role)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    const { key } = await c.req.json();
+    if (!key || typeof key !== 'string') return c.json({ error: 'key required' }, 400);
+    const scope = await taskScope(c, user.id, userData);
+    await kv.del(`task_done:${scope}:${key}`);
+    return c.json({ success: true });
+  } catch (err) {
+    console.log('Reopen task error:', err);
+    return c.json({ error: 'Failed to reopen task' }, 500);
+  }
+});
+
+// The archive at the bottom of the start screen: everything ticked off, newest
+// first.
+app.get("/make-server-6679cacd/signals/tasks/archive", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const userData = await getUserData(user.id);
+    if (!['teacher', 'admin', 'regional_admin', 'superadmin'].includes(userData?.role)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    const tasks = (await completedTasks(await taskScope(c, user.id, userData)))
+      .sort((a: any, b: any) => String(b.completedAt).localeCompare(String(a.completedAt)))
+      .slice(0, 100);
+    return c.json({ tasks });
+  } catch (err) {
+    console.log('Task archive error:', err);
+    return c.json({ error: 'Failed to load archive' }, 500);
   }
 });
 

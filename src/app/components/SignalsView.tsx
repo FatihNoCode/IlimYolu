@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  AlertTriangle,
+  Archive,
   ChevronDown,
   ChevronUp,
+  Check,
   CheckCircle2,
+  Circle,
   RefreshCw,
+  RotateCcw,
   TrendingDown,
   CalendarX,
   BookX,
@@ -16,13 +19,24 @@ import {
  * "Wat vraagt vandaag om aandacht" — the prioritised worklist.
  *
  * Two halves, both computed server-side by the signals engine:
- *   • the feed: gaps in the user's own workflow (attendance not registered,
- *     exams not graded, cases past their SLA, unbooked conference slots);
+ *   • the feed: what this role owes the school today. For a teacher that is
+ *     gaps in their own workflow (attendance not registered, exams not graded);
+ *     for a beheerder it is the school's calendar of obligations (plan the
+ *     oudergesprekken, send the payment round) plus the children the school has
+ *     lost sight of;
  *   • the at-risk list: students whose attendance, behaviour, results or
  *     homework are trending the wrong way, ranked by severity.
  *
  * The list is deliberately empty when nothing is wrong. A worklist that always
  * has entries is one people stop reading.
+ *
+ * Two rules keep it readable once a school is real-sized:
+ *   1. Anything that repeats per student or per item is *grouped* — twelve
+ *      children with an unreported absence is one collapsed line, not twelve
+ *      rows the reader scrolls past;
+ *   2. Every entry can be ticked off. Ticked entries leave the list and turn up
+ *      in the archive at the bottom, so "did anyone ring those parents?" has an
+ *      answer.
  */
 
 type Level = 'high' | 'medium' | 'low';
@@ -57,6 +71,15 @@ interface FeedItem {
   count?: number;
 }
 
+interface ArchivedTask {
+  key: string;
+  titleNl: string;
+  titleTr: string;
+  link?: string;
+  completedAt: string;
+  completedByName?: string;
+}
+
 interface SignalsViewProps {
   language: 'tr' | 'nl';
   apiRequest: (endpoint: string, options?: RequestInit) => Promise<any>;
@@ -70,13 +93,76 @@ const LEVEL_STYLES: Record<Level, { badge: string; border: string; dot: string }
   low: { badge: 'bg-blue-100 text-blue-700', border: 'border-l-4 border-l-blue-400', dot: 'bg-blue-400' },
 };
 
+const LEVEL_RANK: Record<Level, number> = { high: 3, medium: 2, low: 1 };
+
 /** One icon per signal family, so the list is scannable without reading. */
 function signalIcon(key: string) {
-  if (key.startsWith('attendance')) return CalendarX;
+  if (key.startsWith('attendance') || key.startsWith('absence')) return CalendarX;
   if (key.startsWith('behavior')) return Smile;
   if (key.startsWith('exam')) return TrendingDown;
   if (key.startsWith('homework')) return BookX;
   return ClipboardList;
+}
+
+/**
+ * The part of a task key before the occurrence, e.g. `absence_unreported` from
+ * `absence_unreported:<studentId>`. Tasks sharing a family are the same kind of
+ * job done for different subjects, which is exactly what may be folded away.
+ */
+function family(key: string): string {
+  return key.split(':')[0];
+}
+
+/**
+ * Heading for a folded group. Only families that genuinely repeat need one; a
+ * family that only ever produces a single task never reaches this.
+ */
+const GROUP_LABELS: Record<string, { nl: string; tr: string }> = {
+  absence_sick_streak: { nl: 'Leerlingen langer dan twee lessen ziekgemeld', tr: 'İki dersten uzun süredir hasta bildirilen öğrenciler' },
+  absence_unreported: { nl: 'Afwezig zonder ziekmelding', tr: 'Bildirimsiz devamsızlık' },
+  exam_ungraded: { nl: 'Toetsen om na te kijken', tr: 'Değerlendirilecek sınavlar' },
+  conference_unbooked: { nl: 'Gesprekken zonder ingeschreven ouders', tr: 'Veli kaydı olmayan görüşmeler' },
+  vacation_agenda: { nl: 'Vakanties nog niet in de agenda', tr: 'Ajandaya eklenmemiş tatiller' },
+  attendance_missing: { nl: 'Aanwezigheid nog niet ingevuld', tr: 'Devamsızlık henüz girilmedi' },
+};
+
+interface Group {
+  family: string;
+  level: Level;
+  items: FeedItem[];
+}
+
+/** Group consecutive-by-kind tasks, keeping the server's severity order. */
+function groupFeed(feed: FeedItem[]): Group[] {
+  const groups: Group[] = [];
+  const byFamily = new Map<string, Group>();
+  for (const item of feed) {
+    const fam = family(item.key);
+    const existing = byFamily.get(fam);
+    if (existing) {
+      existing.items.push(item);
+      if (LEVEL_RANK[item.level] > LEVEL_RANK[existing.level]) existing.level = item.level;
+      continue;
+    }
+    const group: Group = { family: fam, level: item.level, items: [item] };
+    byFamily.set(fam, group);
+    groups.push(group);
+  }
+  return groups;
+}
+
+/** Families of the student risk list, so those fold the same way tasks do. */
+const RISK_GROUPS: Array<{ id: string; match: (key: string) => boolean; nl: string; tr: string }> = [
+  { id: 'attendance', match: (k) => k.startsWith('attendance'), nl: 'Aanwezigheid', tr: 'Devam' },
+  { id: 'behavior', match: (k) => k.startsWith('behavior'), nl: 'Gedrag', tr: 'Davranış' },
+  { id: 'exam', match: (k) => k.startsWith('exam'), nl: 'Toetsresultaten', tr: 'Sınav sonuçları' },
+  { id: 'homework', match: (k) => k.startsWith('homework'), nl: 'Huiswerk', tr: 'Ödev' },
+];
+
+/** The group a student is filed under: their most severe signal decides. */
+function riskGroupOf(student: StudentSignals): string {
+  const worst = [...student.signals].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level])[0];
+  return RISK_GROUPS.find((g) => worst && g.match(worst.key))?.id || 'other';
 }
 
 export default function SignalsView({ language, apiRequest, onNavigate }: SignalsViewProps) {
@@ -95,6 +181,13 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
         scanned: 'öğrenci tarandı',
         levels: { high: 'Yüksek', medium: 'Orta', low: 'Düşük' } as Record<Level, string>,
         open: 'Aç',
+        complete: 'Tamamlandı olarak işaretle',
+        archive: 'Tamamlanan görevler',
+        archiveEmpty: 'Henüz tamamlanan görev yok.',
+        undo: 'Geri al',
+        // Turkish takes no plural after a number, so one form covers both.
+        students: (n: number) => `${n} öğrenci`,
+        tasks: (n: number) => `${n} görev`,
       }
     : {
         title: 'Wat vandaag aandacht vraagt',
@@ -109,6 +202,12 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
         scanned: 'leerlingen gescand',
         levels: { high: 'Hoog', medium: 'Midden', low: 'Laag' } as Record<Level, string>,
         open: 'Openen',
+        complete: 'Afvinken',
+        archive: 'Afgeronde taken',
+        archiveEmpty: 'Er is nog niets afgerond.',
+        undo: 'Ongedaan maken',
+        students: (n: number) => `${n} ${n === 1 ? 'leerling' : 'leerlingen'}`,
+        tasks: (n: number) => `${n} ${n === 1 ? 'taak' : 'taken'}`,
       };
 
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -117,6 +216,12 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Folded groups, keyed by family / risk-group id. Groups start open: the
+  // point is a shorter list, not a hidden one.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archive, setArchive] = useState<ArchivedTask[]>([]);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,9 +247,101 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
     load();
   }, [load]);
 
+  const loadArchive = useCallback(async () => {
+    try {
+      const res = await apiRequest('/signals/tasks/archive');
+      setArchive(res?.tasks || []);
+      setArchiveLoaded(true);
+    } catch {
+      setArchiveLoaded(true);
+    }
+  }, [apiRequest]);
+
+  // Tick a task off. Removed from the list immediately — the round-trip is
+  // bookkeeping, and making someone wait on it to see the row go is what makes
+  // a checkbox feel broken. A failed write restores the row on the next load.
+  const complete = async (item: FeedItem) => {
+    setFeed((prev) => prev.filter((f) => f.key !== item.key));
+    setArchiveLoaded(false);
+    try {
+      await apiRequest('/signals/tasks/complete', {
+        method: 'POST',
+        body: JSON.stringify({
+          key: item.key,
+          titleNl: item.titleNl,
+          titleTr: item.titleTr,
+          link: item.link,
+        }),
+      });
+      if (archiveOpen) loadArchive();
+    } catch {
+      load();
+    }
+  };
+
+  const reopen = async (task: ArchivedTask) => {
+    setArchive((prev) => prev.filter((t) => t.key !== task.key));
+    try {
+      await apiRequest('/signals/tasks/reopen', {
+        method: 'POST',
+        body: JSON.stringify({ key: task.key }),
+      });
+    } finally {
+      load();
+    }
+  };
+
+  const toggleArchive = () => {
+    const next = !archiveOpen;
+    setArchiveOpen(next);
+    if (next && !archiveLoaded) loadArchive();
+  };
+
   const label = (item: { titleNl: string; titleTr: string }) => (tr ? item.titleTr : item.titleNl);
   const body = (item: { bodyNl?: string; bodyTr?: string; detailNl?: string; detailTr?: string }) =>
     tr ? item.bodyTr ?? item.detailTr : item.bodyNl ?? item.detailNl;
+  const groupLabel = (group: Group) => {
+    const entry = GROUP_LABELS[group.family];
+    return entry ? (tr ? entry.tr : entry.nl) : label(group.items[0]);
+  };
+
+  const groups = groupFeed(feed);
+
+  // One card per task: a checkbox on the left, the task itself acting as the
+  // link to wherever it gets done.
+  const taskCard = (item: FeedItem, nested = false) => (
+    <div
+      key={item.key}
+      className={`bg-white border border-gray-200 ${nested ? 'rounded-md' : `rounded-lg ${LEVEL_STYLES[item.level].border}`} flex items-start gap-3 p-4`}
+    >
+      <button
+        onClick={() => complete(item)}
+        aria-label={text.complete}
+        title={text.complete}
+        className="mt-0.5 shrink-0 text-gray-300 hover:text-emerald-600 transition"
+      >
+        <Circle className="w-5 h-5" />
+      </button>
+      <button
+        onClick={() => item.link && onNavigate?.(item.link)}
+        disabled={!item.link || !onNavigate}
+        className={`min-w-0 flex-1 text-left ${item.link && onNavigate ? 'cursor-pointer group' : 'cursor-default'}`}
+      >
+        <p className={`font-medium text-gray-800 ${item.link && onNavigate ? 'group-hover:text-emerald-700' : ''}`}>
+          {label(item)}
+        </p>
+        <p className="text-sm text-gray-500 mt-1">{body(item)}</p>
+      </button>
+      {item.link && onNavigate && (
+        <button
+          onClick={() => onNavigate(item.link!)}
+          className="self-center shrink-0 text-sm font-medium px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition"
+        >
+          {text.open}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div>
@@ -171,35 +368,51 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
           {/* ── Openstaande acties ── */}
           <section>
             <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">{text.todo}</h4>
-            {feed.length === 0 ? (
+            {groups.length === 0 ? (
               <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-4">
                 <CheckCircle2 className="w-5 h-5 shrink-0" />
                 {text.allClear}
               </div>
             ) : (
               <div className="space-y-2">
-                {feed.map((item) => (
-                  <div
-                    key={item.key}
-                    className={`bg-white rounded-lg border border-gray-200 ${LEVEL_STYLES[item.level].border} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-gray-400 shrink-0" />
-                        <p className="font-medium text-gray-800">{label(item)}</p>
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1">{body(item)}</p>
-                    </div>
-                    {item.link && onNavigate && (
+                {groups.map((group) => {
+                  // A family with one task is just that task — folding a single
+                  // row away costs a click and saves nothing.
+                  if (group.items.length === 1) return taskCard(group.items[0]);
+
+                  const isOpen = !collapsed[group.family];
+                  return (
+                    <div
+                      key={group.family}
+                      className={`bg-white rounded-lg border border-gray-200 ${LEVEL_STYLES[group.level].border} overflow-hidden`}
+                    >
                       <button
-                        onClick={() => onNavigate(item.link!)}
-                        className="self-start sm:self-auto text-sm font-medium px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shrink-0"
+                        onClick={() => setCollapsed((prev) => ({ ...prev, [group.family]: isOpen }))}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition"
                       >
-                        {text.open}
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800">{groupLabel(group)}</p>
+                          <p className="text-sm text-gray-500 mt-1">{text.tasks(group.items.length)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${LEVEL_STYLES[group.level].badge}`}>
+                            {group.items.length}
+                          </span>
+                          {isOpen ? (
+                            <ChevronUp className="w-4 h-4 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
                       </button>
-                    )}
-                  </div>
-                ))}
+                      {isOpen && (
+                        <div className="border-t border-gray-200 bg-gray-50 p-3 space-y-2">
+                          {group.items.map((item) => taskCard(item, true))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -222,27 +435,36 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
               </div>
             ) : (
               <div className="space-y-2">
-                {students.map((student) => {
-                  const isOpen = expanded === student.studentId;
+                {RISK_GROUPS.concat([{ id: 'other', match: () => true, nl: 'Overig', tr: 'Diğer' }]).map((riskGroup) => {
+                  const members = students.filter((s) => riskGroupOf(s) === riskGroup.id);
+                  if (!members.length) return null;
+                  const groupId = `risk:${riskGroup.id}`;
+                  const isOpen = !collapsed[groupId];
+                  const level = members.reduce<Level>(
+                    (worst, s) => (LEVEL_RANK[s.level] > LEVEL_RANK[worst] ? s.level : worst),
+                    'low',
+                  );
+                  const Icon = signalIcon(riskGroup.id);
+
                   return (
                     <div
-                      key={student.studentId}
-                      className={`bg-white rounded-lg border border-gray-200 ${LEVEL_STYLES[student.level].border} overflow-hidden`}
+                      key={groupId}
+                      className={`bg-white rounded-lg border border-gray-200 ${LEVEL_STYLES[level].border} overflow-hidden`}
                     >
                       <button
-                        onClick={() => setExpanded(isOpen ? null : student.studentId)}
-                        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition gap-3"
+                        onClick={() => setCollapsed((prev) => ({ ...prev, [groupId]: isOpen }))}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition"
                       >
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-800 truncate">{student.studentName}</p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {student.className ? `${student.className} · ` : ''}
-                            {student.signals.map((s) => label(s)).join(' · ')}
-                          </p>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Icon className="w-4 h-4 text-gray-400 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-800">{tr ? riskGroup.tr : riskGroup.nl}</p>
+                            <p className="text-sm text-gray-500 truncate">{text.students(members.length)}</p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${LEVEL_STYLES[student.level].badge}`}>
-                            {text.levels[student.level]}
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${LEVEL_STYLES[level].badge}`}>
+                            {text.levels[level]}
                           </span>
                           {isOpen ? (
                             <ChevronUp className="w-4 h-4 text-gray-400" />
@@ -253,17 +475,42 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
                       </button>
 
                       {isOpen && (
-                        <div className="border-t border-gray-200 bg-gray-50 p-4 space-y-3">
-                          {student.signals.map((signal) => {
-                            const Icon = signalIcon(signal.key);
+                        <div className="border-t border-gray-200 divide-y divide-gray-100">
+                          {members.map((student) => {
+                            const studentOpen = expanded === student.studentId;
                             return (
-                              <div key={signal.key} className="flex items-start gap-3">
-                                <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${LEVEL_STYLES[signal.level].dot}`} />
-                                <Icon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-gray-800">{label(signal)}</p>
-                                  <p className="text-sm text-gray-500">{body(signal)}</p>
-                                </div>
+                              <div key={student.studentId}>
+                                <button
+                                  onClick={() => setExpanded(studentOpen ? null : student.studentId)}
+                                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-gray-800 truncate">{student.studentName}</p>
+                                    <p className="text-sm text-gray-500 truncate">
+                                      {student.className ? `${student.className} · ` : ''}
+                                      {student.signals.map((s) => label(s)).join(' · ')}
+                                    </p>
+                                  </div>
+                                  <span className={`shrink-0 w-2 h-2 rounded-full ${LEVEL_STYLES[student.level].dot}`} />
+                                </button>
+
+                                {studentOpen && (
+                                  <div className="bg-gray-50 px-4 py-3 space-y-3">
+                                    {student.signals.map((signal) => {
+                                      const SignalIcon = signalIcon(signal.key);
+                                      return (
+                                        <div key={signal.key} className="flex items-start gap-3">
+                                          <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${LEVEL_STYLES[signal.level].dot}`} />
+                                          <SignalIcon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                                          <div className="min-w-0">
+                                            <p className="text-sm font-medium text-gray-800">{label(signal)}</p>
+                                            <p className="text-sm text-gray-500">{body(signal)}</p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -272,6 +519,63 @@ export default function SignalsView({ language, apiRequest, onNavigate }: Signal
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </section>
+
+          {/* ── Archief, onderaan ── */}
+          <section className="pt-2">
+            <button
+              onClick={toggleArchive}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-600">
+                <Archive className="w-4 h-4 text-gray-400" />
+                {text.archive}
+              </span>
+              {archiveOpen ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {archiveOpen && (
+              <div className="mt-2 rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                {!archiveLoaded ? (
+                  <p className="text-sm text-gray-400 p-4">{text.loading}</p>
+                ) : archive.length === 0 ? (
+                  <p className="text-sm text-gray-500 p-4">{text.archiveEmpty}</p>
+                ) : (
+                  archive.map((task) => (
+                    <div key={task.key} className="flex items-start gap-3 p-4">
+                      <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <button
+                        onClick={() => task.link && onNavigate?.(task.link)}
+                        disabled={!task.link || !onNavigate}
+                        className={`min-w-0 flex-1 text-left ${task.link && onNavigate ? 'cursor-pointer hover:text-emerald-700' : 'cursor-default'}`}
+                      >
+                        <p className="text-sm text-gray-700">{label(task)}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(task.completedAt).toLocaleDateString(tr ? 'tr-TR' : 'nl-NL', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                          })}
+                          {task.completedByName ? ` · ${task.completedByName}` : ''}
+                        </p>
+                      </button>
+                      <button
+                        onClick={() => reopen(task)}
+                        title={text.undo}
+                        aria-label={text.undo}
+                        className="shrink-0 text-gray-300 hover:text-gray-600 transition"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </section>

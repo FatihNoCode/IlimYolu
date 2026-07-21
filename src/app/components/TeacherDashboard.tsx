@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Moon, ClipboardList, Settings, Award, Check, AlertTriangle, X, Frown, Meh, Smile, FileText } from 'lucide-react';
+import { Moon, ClipboardList, UsersRound, Award, Check, AlertTriangle, X, Frown, Meh, Smile, FileText } from 'lucide-react';
 import booksLogo from '../../imports/logo.svg';
 import { useApp } from '../App';
 import { useHashTab } from '../useHashTab';
@@ -478,7 +478,10 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
     sharedNavItem('cases', language),
     { id: 'toets', label: language === 'tr' ? 'Sınav' : 'Toets', icon: FileText },
     ...(diplomaVisible ? [{ id: 'diploma', label: 'Diploma', icon: Award }] : []),
-    { id: 'beheer', label: 'Beheer', icon: Settings },
+    // The tab id stays `beheer` — it is in saved nav orders and in URL hashes —
+    // but nothing about the destination was ever "beheer": it opens the class
+    // roster. Named and iconed for what it shows.
+    { id: 'beheer', label: language === 'tr' ? 'Sınıflar' : 'Klassen', icon: UsersRound },
   ];
 
   // App layout: the sidebar's destinations plus Preferences become the

@@ -100,6 +100,8 @@ function topLevel(signals: Signal[]): Level | null {
 export interface SignalContext {
   /** student records: { id, name, classId, schoolId } */
   students: any[];
+  /** parent sick-notes: { studentId, lessonDate, reason } */
+  notifications?: any[];
   /** class records: { id, name, schoolId } */
   classes: any[];
   /** attendance records: { classId, date, records: [{ studentId, present }] } */
@@ -605,13 +607,17 @@ export function buildTodayFeed(input: FeedInput): FeedItem[] {
   );
   if (missing.length && ['teacher', 'admin'].includes(input.role)) {
     items.push({
-      key: 'attendance_missing',
+      // Date-scoped: a task ticked off today must come back tomorrow, and the
+      // archive should show one entry per day rather than one forever.
+      key: `attendance_missing:${input.today}`,
       level: 'high',
       titleNl: 'Aanwezigheid nog niet ingevuld',
       titleTr: 'Devamsızlık henüz girilmedi',
       bodyNl: `${missing.length} ${missing.length === 1 ? 'klas' : 'klassen'}: ${missing.map((c) => c.name).join(', ')}.`,
       bodyTr: `${missing.length} sınıf: ${missing.map((c) => c.name).join(', ')}.`,
-      link: '#entities',
+      // A teacher registers the lesson on their own Les-tab; a beheerder does
+      // it from class management. Same task, different door.
+      link: input.role === 'teacher' ? '#attendance' : '#entities',
       count: missing.length,
     });
   }
@@ -688,6 +694,390 @@ export function buildTodayFeed(input: FeedInput): FeedItem[] {
       bodyTr: `${input.outstandingPayments} öğrencinin ödenmemiş tutarı var.`,
       link: '#boekhouding',
       count: input.outstandingPayments,
+    });
+  }
+
+  return items.sort((a, b) => LEVEL_WEIGHT[b.level] - LEVEL_WEIGHT[a.level]);
+}
+
+// ── 4. Absences the beheerder has to chase ──────────────────────────────────
+//
+// Two situations a school cannot afford to let slide, both about a child the
+// school has lost sight of rather than about a child who is doing badly:
+//
+//   • reported sick for more than two lessons back to back — at that point a
+//     phone call home is warranted, not another note in the file;
+//   • marked absent with no sick-note at all — nobody told the school anything,
+//     which is the case where a parent may not even know their child is gone.
+//
+// Both are raised per student (one item each) so a beheerder can tick off the
+// families they have actually rung. The dashboard groups them back together.
+
+/** Lessons a student may be marked absent for, oldest first. */
+function lessonMarks(studentId: string, ctx: SignalContext): Array<{ date: string; present: boolean }> {
+  return ctx.attendance
+    .filter((a) => a?.date && a?.records?.some((r: any) => r.studentId === studentId))
+    .filter((a) => !ctx.since || a.date >= ctx.since)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .map((a) => ({
+      date: String(a.date),
+      present: a.records.find((r: any) => r.studentId === studentId)?.present !== false,
+    }));
+}
+
+export interface AbsenceFlagOptions {
+  /** More than this many consecutive reported absences raises the flag. */
+  sickStreak?: number;
+  /** How far back an unreported absence still counts as worth chasing. */
+  unreportedWindowDays?: number;
+}
+
+export function computeAbsenceFlags(ctx: SignalContext, opts: AbsenceFlagOptions = {}): FeedItem[] {
+  const streakLimit = opts.sickStreak ?? 2; // "more than 2 days back to back"
+  const windowDays = opts.unreportedWindowDays ?? 30;
+  const classById = new Map(ctx.classes.filter((c) => c?.id).map((c) => [c.id, c]));
+  const cutoff = new Date(Date.now() - windowDays * DAY_MS).toISOString().slice(0, 10);
+  const notifications = Array.isArray(ctx.notifications) ? ctx.notifications : [];
+
+  const items: FeedItem[] = [];
+
+  for (const student of ctx.students) {
+    if (!student?.id) continue;
+    const marks = lessonMarks(student.id, ctx);
+    if (!marks.length) continue;
+
+    const reported = new Set(
+      notifications
+        .filter((n) => n?.studentId === student.id && n.lessonDate)
+        .map((n) => String(n.lessonDate).slice(0, 10)),
+    );
+    const name = student.name || '';
+    const where = classById.get(student.classId)?.name;
+    const suffix = where ? ` (${where})` : '';
+
+    // Trailing run of reported absences. Measured on the run that is still
+    // open — a streak that ended a month ago is history, not a to-do.
+    let streak = 0;
+    for (let i = marks.length - 1; i >= 0 && !marks[i].present && reported.has(marks[i].date); i--) streak++;
+
+    if (streak > streakLimit) {
+      const first = marks[marks.length - streak].date;
+      items.push({
+        key: `absence_sick_streak:${student.id}`,
+        level: 'high',
+        titleNl: `${name} is ${streak} lessen op rij ziekgemeld`,
+        titleTr: `${name} üst üste ${streak} derste hasta bildirildi`,
+        bodyNl: `${name}${suffix} is sinds ${first} elke les ziekgemeld. Neem contact op met de ouders.`,
+        bodyTr: `${name}${suffix} ${first} tarihinden beri her derste hasta bildirildi. Velilerle iletişime geçin.`,
+        link: '#meldingen',
+        count: streak,
+      });
+      continue; // one absence item per student; the streak is the bigger story
+    }
+
+    // Absent with nothing reported at all — the school was never told.
+    const unreported = marks.filter((m) => !m.present && m.date >= cutoff && !reported.has(m.date));
+    if (unreported.length) {
+      const last = unreported[unreported.length - 1].date;
+      items.push({
+        key: `absence_unreported:${student.id}`,
+        level: unreported.length > 1 ? 'high' : 'medium',
+        titleNl: `${name} was afwezig zonder ziekmelding`,
+        titleTr: `${name} bildirimsiz olarak devamsız`,
+        bodyNl:
+          unreported.length === 1
+            ? `${name}${suffix} was op ${last} afwezig zonder melding. Neem contact op met de ouders.`
+            : `${name}${suffix} was ${unreported.length}× afwezig zonder melding, laatst op ${last}. Neem contact op met de ouders.`,
+        bodyTr:
+          unreported.length === 1
+            ? `${name}${suffix} ${last} tarihinde bildirimsiz devamsız oldu. Velilerle iletişime geçin.`
+            : `${name}${suffix} ${unreported.length} kez bildirimsiz devamsız oldu, en son ${last}. Velilerle iletişime geçin.`,
+        link: '#meldingen',
+        count: unreported.length,
+      });
+    }
+  }
+
+  return items;
+}
+
+// ── 5. The beheerder's own worklist ─────────────────────────────────────────
+//
+// A local admin does not teach, so the teacher feed (register the lesson, grade
+// the exam) is somebody else's job showing up in their morning. What a
+// beheerder actually owns is the school's calendar of recurring obligations,
+// most of which have no trigger at all today: nothing tells you it is time to
+// invite parents, or that the payment round is due, until it is late.
+//
+// These tasks are therefore mostly date-driven, and each one carries an
+// occurrence in its key (`payment_reminder:2026-11`) so ticking off November's
+// round leaves February's untouched and the archive reads as a history.
+
+/** Easter Sunday for a year (Meeus/Jones/Butcher), as an ISO date. */
+function easterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(d: Date, n: number): Date {
+  return new Date(d.getTime() + n * DAY_MS);
+}
+
+export interface Holiday {
+  slug: string;
+  nameNl: string;
+  nameTr: string;
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * The multi-day closures a Dutch school plans around, for one calendar year.
+ *
+ * The five school vacations are national *advisory* dates that shift a little
+ * per year and per region, so they live in a table (regio Midden — Amersfoort).
+ * ⚠️ Extend SCHOOL_VACATIONS before the last listed school year runs out;
+ * check the current dates on rijksoverheid.nl/onderwerpen/schoolvakanties.
+ * The reminder only needs to land in roughly the right week, which is why an
+ * approximate table is acceptable here and exact dates are not claimed in the
+ * task text — the beheerder is asked to enter them, not told what they are.
+ *
+ * The Christian long weekends are computed from Easter instead, which is exact.
+ */
+const SCHOOL_VACATIONS: Record<number, Holiday[]> = {
+  2025: [
+    { slug: 'herfst-2025', nameNl: 'Herfstvakantie', nameTr: 'Sonbahar tatili', startDate: '2025-10-18', endDate: '2025-10-26' },
+    { slug: 'kerst-2025', nameNl: 'Kerstvakantie', nameTr: 'Yılbaşı tatili', startDate: '2025-12-20', endDate: '2026-01-04' },
+  ],
+  2026: [
+    { slug: 'voorjaar-2026', nameNl: 'Voorjaarsvakantie', nameTr: 'Yarıyıl tatili', startDate: '2026-02-14', endDate: '2026-02-22' },
+    { slug: 'mei-2026', nameNl: 'Meivakantie', nameTr: 'Mayıs tatili', startDate: '2026-04-25', endDate: '2026-05-03' },
+    { slug: 'zomer-2026', nameNl: 'Zomervakantie', nameTr: 'Yaz tatili', startDate: '2026-07-11', endDate: '2026-08-23' },
+    { slug: 'herfst-2026', nameNl: 'Herfstvakantie', nameTr: 'Sonbahar tatili', startDate: '2026-10-17', endDate: '2026-10-25' },
+    { slug: 'kerst-2026', nameNl: 'Kerstvakantie', nameTr: 'Yılbaşı tatili', startDate: '2026-12-19', endDate: '2027-01-03' },
+  ],
+  2027: [
+    { slug: 'voorjaar-2027', nameNl: 'Voorjaarsvakantie', nameTr: 'Yarıyıl tatili', startDate: '2027-02-13', endDate: '2027-02-21' },
+    { slug: 'mei-2027', nameNl: 'Meivakantie', nameTr: 'Mayıs tatili', startDate: '2027-04-24', endDate: '2027-05-02' },
+    { slug: 'zomer-2027', nameNl: 'Zomervakantie', nameTr: 'Yaz tatili', startDate: '2027-07-10', endDate: '2027-08-22' },
+    { slug: 'herfst-2027', nameNl: 'Herfstvakantie', nameTr: 'Sonbahar tatili', startDate: '2027-10-16', endDate: '2027-10-24' },
+    { slug: 'kerst-2027', nameNl: 'Kerstvakantie', nameTr: 'Yılbaşı tatili', startDate: '2027-12-25', endDate: '2028-01-09' },
+  ],
+  2028: [
+    { slug: 'voorjaar-2028', nameNl: 'Voorjaarsvakantie', nameTr: 'Yarıyıl tatili', startDate: '2028-02-26', endDate: '2028-03-05' },
+    { slug: 'mei-2028', nameNl: 'Meivakantie', nameTr: 'Mayıs tatili', startDate: '2028-04-22', endDate: '2028-04-30' },
+    { slug: 'zomer-2028', nameNl: 'Zomervakantie', nameTr: 'Yaz tatili', startDate: '2028-07-15', endDate: '2028-08-27' },
+  ],
+};
+
+export function holidaysForYear(year: number): Holiday[] {
+  const easter = easterSunday(year);
+  return [
+    ...(SCHOOL_VACATIONS[year] || []),
+    {
+      slug: `pasen-${year}`,
+      nameNl: 'Paasweekend',
+      nameTr: 'Paskalya tatili',
+      startDate: iso(addDays(easter, -2)), // Goede Vrijdag
+      endDate: iso(addDays(easter, 1)), // Tweede Paasdag
+    },
+    {
+      slug: `hemelvaart-${year}`,
+      nameNl: 'Hemelvaart',
+      nameTr: 'Miraç tatili (Hemelvaart)',
+      startDate: iso(addDays(easter, 39)),
+      endDate: iso(addDays(easter, 40)),
+    },
+    {
+      slug: `pinksteren-${year}`,
+      nameNl: 'Pinksterweekend',
+      nameTr: 'Pentikost tatili',
+      startDate: iso(addDays(easter, 49)),
+      endDate: iso(addDays(easter, 50)),
+    },
+  ];
+}
+
+/** Holidays starting within `days` from `today` — the ones to plan for now. */
+export function upcomingHolidays(today: string, days = 7): Holiday[] {
+  const from = new Date(`${today}T00:00:00Z`);
+  const until = iso(addDays(from, days));
+  const year = from.getUTCFullYear();
+  return [...holidaysForYear(year), ...holidaysForYear(year + 1)]
+    .filter((h) => h.startDate >= today && h.startDate <= until)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+/** True when the agenda already has a vacation period covering this holiday. */
+function vacationCovers(vacations: any[], holiday: Holiday): boolean {
+  return vacations.some(
+    (v) => v?.startDate && v?.endDate && v.startDate <= holiday.startDate && v.endDate >= holiday.startDate,
+  );
+}
+
+/** Which half of the school year `today` falls in — the oudergesprek cycle. */
+function conferencePeriod(today: string): { key: string; nl: string; tr: string } | null {
+  const month = Number(today.slice(5, 7));
+  const year = Number(today.slice(0, 4));
+  // Autumn round: planned in October/November, held before Christmas.
+  if (month >= 10 && month <= 11) return { key: `${year}-najaar`, nl: 'het najaar', tr: 'sonbahar' };
+  // Spring round: planned in February/March.
+  if (month >= 2 && month <= 3) return { key: `${year}-voorjaar`, nl: 'het voorjaar', tr: 'ilkbahar' };
+  return null;
+}
+
+/** The four months a schoolgeld reminder goes out. */
+const PAYMENT_MONTHS: Record<number, { nl: string; tr: string }> = {
+  11: { nl: 'november', tr: 'kasım' },
+  2: { nl: 'februari', tr: 'şubat' },
+  5: { nl: 'mei', tr: 'mayıs' },
+  6: { nl: 'juni', tr: 'haziran' },
+};
+
+export interface AdminFeedInput {
+  today: string;
+  /** Conference sessions dated today or later. */
+  upcomingConferences: any[];
+  /** Cases still open, with `status` and `statusChangedAt` / `updatedAt`. */
+  openCases: any[];
+  /** Registrations still awaiting a decision. */
+  pendingRegistrations: number;
+  /** When the newest of those came in — see the note on the task key below. */
+  latestRegistrationAt?: string;
+  /** Whether the diploma tab is currently switched on for teachers. */
+  diplomaVisible: boolean;
+  /** Vacation periods already entered in the agenda. */
+  vacations: any[];
+  /** Students with an outstanding schoolgeld balance. */
+  outstandingPayments?: number;
+  /** Days in one status after which a case counts as stuck. */
+  caseStaleDays?: number;
+}
+
+export function buildAdminFeed(input: AdminFeedInput): FeedItem[] {
+  const items: FeedItem[] = [];
+  const today = input.today;
+  const month = Number(today.slice(5, 7));
+  const day = Number(today.slice(8, 10));
+  const year = Number(today.slice(0, 4));
+  const staleDays = input.caseStaleDays ?? 14;
+  const list = <T,>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
+
+  // 1. Plan the oudergesprekken. Only nags inside a planning window, and only
+  //    while there is genuinely nothing on the calendar yet.
+  const period = conferencePeriod(today);
+  if (period && list(input.upcomingConferences).length === 0) {
+    items.push({
+      key: `oudergesprekken_plan:${period.key}`,
+      level: 'medium',
+      titleNl: 'Plan de oudergesprekken',
+      titleTr: 'Veli görüşmelerini planlayın',
+      bodyNl: `Er staat nog geen gespreksronde voor ${period.nl} gepland. Zet een datum vast, dan kunnen ouders zich inschrijven voor een tijdslot.`,
+      bodyTr: `${period.tr} dönemi için henüz görüşme planlanmadı. Bir tarih belirleyin, böylece veliler saat seçebilir.`,
+      link: '#oudergesprekken',
+    });
+  }
+
+  // 2. Cases that have sat in the same status too long. Status, not just last
+  //    touched: a dossier can be edited weekly and still never move forward.
+  const stuck = list(input.openCases).filter((k) => {
+    const ts = Date.parse(k?.statusChangedAt || k?.updatedAt || k?.createdAt || '');
+    return Number.isFinite(ts) && Date.now() - ts > staleDays * DAY_MS;
+  });
+  if (stuck.length) {
+    items.push({
+      key: `cases_stuck:${today.slice(0, 7)}`,
+      level: 'high',
+      titleNl: 'Casussen zonder voortgang',
+      titleTr: 'İlerlemeyen vakalar',
+      bodyNl: `${stuck.length} ${stuck.length === 1 ? 'casus staat' : 'casussen staan'} al langer dan ${staleDays} dagen in dezelfde status. Loop ze na en zet ze door.`,
+      bodyTr: `${stuck.length} vaka ${staleDays} günden uzun süredir aynı durumda. Gözden geçirip ilerletin.`,
+      link: '#cases',
+      count: stuck.length,
+    });
+  }
+
+  // 3. Registrations waiting on a decision.
+  if (input.pendingRegistrations > 0) {
+    items.push({
+      // Keyed on the newest pending registration rather than on the date: a
+      // beheerder who has looked at the inbox should not be asked again
+      // tomorrow, but the moment a new family applies this comes back.
+      key: `inschrijvingen_open:${input.latestRegistrationAt || today}`,
+      level: 'medium',
+      titleNl: 'Nieuwe inschrijvingen behandelen',
+      titleTr: 'Yeni kayıtları değerlendirin',
+      bodyNl: `${input.pendingRegistrations} ${input.pendingRegistrations === 1 ? 'inschrijving wacht' : 'inschrijvingen wachten'} op een beslissing: plaats de leerling in een klas of wijs de aanvraag af.`,
+      bodyTr: `${input.pendingRegistrations} kayıt karar bekliyor: öğrenciyi bir sınıfa yerleştirin veya başvuruyu reddedin.`,
+      link: '#inschrijvingen',
+      count: input.pendingRegistrations,
+    });
+  }
+
+  // 4. Schoolgeld reminder — four fixed rounds a year.
+  const round = PAYMENT_MONTHS[month];
+  if (round) {
+    const outstanding = input.outstandingPayments || 0;
+    items.push({
+      key: `payment_reminder:${year}-${String(month).padStart(2, '0')}`,
+      level: 'medium',
+      titleNl: 'Verstuur de betalingsherinnering',
+      titleTr: 'Ödeme hatırlatmasını gönderin',
+      bodyNl: outstanding
+        ? `De ronde van ${round.nl} staat open. ${outstanding} ${outstanding === 1 ? 'leerling heeft' : 'leerlingen hebben'} nog een openstaand bedrag.`
+        : `De ronde van ${round.nl} staat open. Verstuur de herinnering aan de ouders met een openstaand bedrag.`,
+      bodyTr: outstanding
+        ? `${round.tr} dönemi başladı. ${outstanding} öğrencinin ödenmemiş tutarı var.`
+        : `${round.tr} dönemi başladı. Ödenmemiş tutarı olan velilere hatırlatma gönderin.`,
+      link: '#boekhouding',
+      count: outstanding || undefined,
+    });
+  }
+
+  // 5. Open the diploma tab for teachers, so period-2 grading can start.
+  //    Late January, and only while it is still switched off.
+  const diplomaWindow = (month === 1 && day >= 20) || (month === 2 && day <= 10);
+  if (diplomaWindow && !input.diplomaVisible) {
+    items.push({
+      key: `diploma_enable:${year}`,
+      level: 'medium',
+      titleNl: 'Zet het diploma-tabblad open voor docenten',
+      titleTr: 'Öğretmenler için diploma sekmesini açın',
+      bodyNl: 'Het tweede rapportmoment komt eraan. Zet het diploma-tabblad aan bij Instellingen, dan kunnen docenten de beoordelingen invullen.',
+      bodyTr: 'İkinci karne dönemi yaklaşıyor. Ayarlar bölümünden diploma sekmesini açın, böylece öğretmenler değerlendirme girebilir.',
+      link: '#settings',
+    });
+  }
+
+  // 6. Put the coming holiday in the agenda, a week before it starts, so
+  //    parents see the closure before they turn up to a locked door.
+  for (const holiday of upcomingHolidays(today, 7)) {
+    if (vacationCovers(list(input.vacations), holiday)) continue;
+    items.push({
+      key: `vacation_agenda:${holiday.slug}`,
+      level: 'medium',
+      titleNl: `Zet ${holiday.nameNl} in de agenda`,
+      titleTr: `${holiday.nameTr} tarihlerini ajandaya ekleyin`,
+      bodyNl: `${holiday.nameNl} begint rond ${holiday.startDate} en staat nog niet in de agenda. Voeg de vakantieperiode toe (controleer de exacte data), dan vervallen de lessen automatisch en zien ouders het.`,
+      bodyTr: `${holiday.nameTr} yaklaşık ${holiday.startDate} tarihinde başlıyor ve ajandada yok. Tatil dönemini ekleyin (kesin tarihleri kontrol edin), böylece dersler otomatik olarak iptal olur ve veliler görebilir.`,
+      link: '#agenda',
     });
   }
 

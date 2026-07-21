@@ -3,8 +3,17 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
 
-// Real Quranic Naskh font (loaded in index.html), with graceful fallbacks.
-const ARABIC_FONT = "'Amiri', 'Scheherazade New', serif";
+// The Naskh face every Arabic glyph in this page is drawn in (bundled, see
+// src/styles/fonts.css).
+//
+// Scheherazade New leads rather than Amiri. Both are Quranic Naskh faces of the
+// kind Quran apps and sites use, but they are drawn for different jobs: Amiri
+// is a book face, with thin hairlines and tight counters that go muddy at the
+// sizes children actually read at. Scheherazade New is SIL's readability cut —
+// heavier strokes, open counters, clearly separated dots — which is exactly
+// what matters on a page whose whole purpose is telling ب from ت from ث.
+// Amiri stays as the fallback so nothing regresses to a system serif.
+const ARABIC_FONT = "'Scheherazade New', 'Amiri', serif";
 
 // Steady "tap to hear" affordance inside the big letter cards: a raised, round
 // chip that reads as a button rather than a jittering emoji.
