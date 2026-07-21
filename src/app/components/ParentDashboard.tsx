@@ -506,9 +506,6 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   if (app && (activeTab === MOBILE_ACCOUNT_ID || activeTab === MOBILE_PREFS_ID)) {
     return (
       <div className="size-full overflow-auto bg-gray-50 px-4 pt-6" style={{ paddingBottom: 'calc(5.5rem + var(--safe-bottom))' }}>
-        {showDemo && (
-          <ProductTour role="parent" language={language} onClose={() => setShowDemo(false)} />
-        )}
         <div className="mx-auto mb-2 flex max-w-lg justify-end">
           <AccountAvatarButton
             onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)}
@@ -518,11 +515,9 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
         {activeTab === MOBILE_ACCOUNT_ID ? (
           <AccountPanel onLogout={onLogout} />
         ) : (
-          <SettingsPanel
-            onShowDemo={() => setShowDemo(true)}
-            navItems={navItems}
-            onReorder={setNavOrder}
-          />
+          // No onShowDemo: the guided tour is web-only now, so Voorkeuren has
+          // nothing to re-open and the row is gone with it.
+          <SettingsPanel navItems={navItems} onReorder={setNavOrder} />
         )}
         {mobileNav()}
       </div>
@@ -534,7 +529,7 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
       className={`size-full overflow-auto ${app ? 'px-3 pt-5' : 'p-3 sm:p-4 md:p-6'}`}
       style={app ? { paddingBottom: 'calc(5.5rem + var(--safe-bottom))' } : undefined}
     >
-      {showDemo && (
+      {!app && showDemo && (
         <ProductTour role="parent" language={language} onClose={() => setShowDemo(false)} />
       )}
       {app && mobileNav()}

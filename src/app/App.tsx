@@ -439,8 +439,9 @@ export default function App() {
   };
 
   // The first-visit product tour walks parents through enrolling a child, so it
-  // is shown to parents only.
-  const tourRole = user?.role === 'parent' ? 'parent' : null;
+  // is shown to parents only — and on the web only. In the app it was the first
+  // thing a new parent met, before they had seen the app it was explaining.
+  const tourRole = user?.role === 'parent' && !isAppLayout() ? 'parent' : null;
 
   // Show the role-specific product tour on the user's first visit.
   useEffect(() => {
