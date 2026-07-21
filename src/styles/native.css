@@ -220,3 +220,32 @@
     }
   }
 }
+
+/* Cold-start greeting (GreetingSplash.tsx). The logo settles in while the
+   greeting types itself out; the caret blinks until the line is finished. */
+@keyframes greeting-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+}
+
+@keyframes greeting-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes greeting-rise {
+    from {
+      opacity: 0;
+      transform: none;
+    }
+  }
+  @keyframes greeting-caret {
+    50% {
+      opacity: 1;
+    }
+  }
+}

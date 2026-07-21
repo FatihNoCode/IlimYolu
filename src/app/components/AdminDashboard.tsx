@@ -19,6 +19,7 @@ import { notify, confirmDialog } from './ui/feedback';
 import { isAppLayout } from '../../lib/native';
 import MobileNav from './mobile/MobileNav';
 import AccountPanel from './mobile/AccountPanel';
+import AccountAvatarButton from './mobile/AccountAvatarButton';
 import SettingsPanel from './mobile/SettingsPanel';
 import CasesView from './CasesView';
 import SignalsView from './SignalsView';
@@ -101,7 +102,6 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
     'communicatie',
     'cases',
     'settings',
-    MOBILE_ACCOUNT_ID,
     MOBILE_PREFS_ID,
   ]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -334,7 +334,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
     { id: 'settings', label: language === 'tr' ? 'Ayarlar' : 'Instellingen', icon: Settings },
   ];
 
-  // App layout: the sidebar's destinations plus Account/Preferences become the
+  // App layout: the sidebar's destinations plus Preferences become the
   // bottom tab bar, in the user's saved order. With this many sections most of
   // them live behind the "More" button.
   const allMobileItems: MobileNavItem[] = [...navItems, ...mobileExtraNavItems(language)];
@@ -349,6 +349,12 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
         className="size-full overflow-auto bg-gray-50 px-4 pt-6"
         style={{ paddingBottom: 'calc(5.5rem + var(--safe-bottom))' }}
       >
+        <div className="mx-auto mb-2 flex max-w-lg justify-end">
+          <AccountAvatarButton
+            onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)}
+            active={activeTab === MOBILE_ACCOUNT_ID}
+          />
+        </div>
         {activeTab === MOBILE_ACCOUNT_ID ? (
           <AccountPanel onLogout={onLogout} />
         ) : (
@@ -367,9 +373,12 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
       {app && mobileNav}
       <div className="max-w-7xl mx-auto">
         {app && (
-          <h1 className="mb-4 text-2xl font-bold text-gray-800 leading-tight">
-            {mobileById[activeTab]?.label ?? t.adminDashboard}
-          </h1>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <h1 className="min-w-0 flex-1 text-2xl font-bold leading-tight text-gray-800">
+              {mobileById[activeTab]?.label ?? t.adminDashboard}
+            </h1>
+            <AccountAvatarButton onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)} />
+          </div>
         )}
         {!app && (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6 md:mb-8">

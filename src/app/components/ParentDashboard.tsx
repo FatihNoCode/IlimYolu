@@ -2,15 +2,18 @@ import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useApp } from '../App';
 import { translations } from './translations';
 import { useHashTab } from '../useHashTab';
-import { Euro, Moon, PlayCircle, AlertTriangle, Check, Home, Receipt, Sparkles, MessageSquare } from 'lucide-react';
+import { Euro, Moon, PlayCircle, AlertTriangle, Check, Home, Receipt, Sparkles, MessageSquare, ArrowLeft } from 'lucide-react';
 import booksLogo from '../../imports/logo.svg';
 import UserMenu from './UserMenu';
 import ProductTour from './ProductTour';
 import AgendaCalendar from './AgendaCalendar';
+import ChildSwitcher from './ChildSwitcher';
 import { notify } from './ui/feedback';
 import { isAppLayout } from '../../lib/native';
+import { logAction } from '../../lib/deviceLog';
 import MobileNav from './mobile/MobileNav';
 import AccountPanel from './mobile/AccountPanel';
+import AccountAvatarButton from './mobile/AccountAvatarButton';
 import SettingsPanel from './mobile/SettingsPanel';
 import {
   useNavOrder,
@@ -104,20 +107,27 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   const [deadlinePassed, setDeadlinePassed] = useState(false);
   const app = isAppLayout();
 
-  // In the app layout the bottom tab bar adds Elif-Ba, Account and Settings as
+  // In the app layout the bottom tab bar adds Elif-Ba and Preferences as
   // top-level destinations; on the web only the overview/billing split exists.
+  // MOBILE_ACCOUNT_ID stays a valid tab (the avatar navigates to it) even
+  // though it no longer appears on the bar.
   const [activeTab, setActiveTab] = useHashTab<string>(
     'overview',
     ['overview', 'billing', 'oudergesprekken', 'alifba', MOBILE_ACCOUNT_ID, MOBILE_PREFS_ID] as const,
   );
+  // MOBILE_ACCOUNT_ID is deliberately absent: account is reached from the
+  // avatar in the top-right corner, not from the tab bar.
   const [navOrder, setNavOrder] = useNavOrder('parent', [
     'overview',
     'billing',
     'oudergesprekken',
     'alifba',
-    MOBILE_ACCOUNT_ID,
     MOBILE_PREFS_ID,
   ]);
+  // Elif-Ba takes over the screen once a child presses Start — see the alifba
+  // branch below. false until ElifBaPage reports it's back on its start screen.
+  const [elifbaAtHome, setElifbaAtHome] = useState(true);
+  const [elifbaGoHome, setElifbaGoHome] = useState(0);
   const [billingSettings, setBillingSettings] = useState<BoekhoudingSettings | null>(null);
   const [billingRecord, setBillingRecord] = useState<any>(null);
   const [billingPayments, setBillingPayments] = useState<PaymentLogEntry[]>([]);
@@ -450,11 +460,28 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   // App layout: Elif-Ba is a full-bleed destination with its own dark theme,
   // rendered edge-to-edge above the bottom tab bar rather than inside the
   // padded gray dashboard shell.
+  //
+  // Once the child presses Start, the tab bar goes away entirely: the games are
+  // played with a finger near the bottom of the screen, and a live tab bar
+  // there means every mis-swipe drops them out of a game. A back button in the
+  // top corner — out of the play area — returns them to the Elif-Ba start
+  // screen, where the bar comes back.
   if (app && activeTab === 'alifba') {
     return (
       // safe-top: `fixed inset-0` opts out of the safe-area padding #root
       // carries, so on iOS this view has to add the status-bar gap itself.
       <div className="safe-top fixed inset-0 flex flex-col bg-slate-700">
+        {!elifbaAtHome && (
+          <button
+            type="button"
+            onClick={() => setElifbaGoHome((n) => n + 1)}
+            aria-label={language === 'tr' ? 'Geri' : 'Terug'}
+            className="absolute right-3 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition active:scale-90"
+            style={{ top: 'calc(var(--safe-top) + 0.75rem)' }}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto">
           <Suspense
             fallback={
@@ -463,21 +490,31 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
               </div>
             }
           >
-            <ElifBaPage />
+            <ElifBaPage
+              goHomeSignal={elifbaGoHome}
+              onAtHomeChange={setElifbaAtHome}
+            />
           </Suspense>
         </div>
-        {mobileNav(false)}
+        {elifbaAtHome && mobileNav(false)}
       </div>
     );
   }
 
-  // App layout: Account and Preferences are their own tab-bar destinations.
+  // App layout: Preferences is a tab-bar destination; Account is reached from
+  // the avatar button, but renders here as the same kind of full-screen panel.
   if (app && (activeTab === MOBILE_ACCOUNT_ID || activeTab === MOBILE_PREFS_ID)) {
     return (
       <div className="size-full overflow-auto bg-gray-50 px-4 pt-6" style={{ paddingBottom: 'calc(5.5rem + var(--safe-bottom))' }}>
         {showDemo && (
           <ProductTour role="parent" language={language} onClose={() => setShowDemo(false)} />
         )}
+        <div className="mx-auto mb-2 flex max-w-lg justify-end">
+          <AccountAvatarButton
+            onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)}
+            active={activeTab === MOBILE_ACCOUNT_ID}
+          />
+        </div>
         {activeTab === MOBILE_ACCOUNT_ID ? (
           <AccountPanel onLogout={onLogout} />
         ) : (
@@ -503,22 +540,22 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
       {app && mobileNav()}
       <div className="max-w-7xl mx-auto">
         {/* App layout drops the logo/toolbar header — navigation lives in the
-            bottom tab bar — and shows only a compact greeting. */}
+            bottom tab bar, the account behind the avatar. */}
         {app && (
-          <div className="mb-4">
+          // The greeting used to sit here on every tab. It's now said once, on
+          // the cold-start splash, so it lands as a welcome rather than as a
+          // header the user scrolls past a dozen times a day.
+          <div className="mb-4 flex items-start justify-between gap-3">
             {/* The home tab shows no title — "Ouderpaneel" only restated where
                 the user already is. Other destinations still name themselves. */}
-            {activeTab !== 'overview' && (
-              <h1 className="text-2xl font-bold text-gray-800 leading-tight">
-                {activeTab === 'billing'
-                  ? language === 'tr' ? 'Ödemeler' : 'Facturatie'
-                  : language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
-              </h1>
-            )}
-            <p className="flex items-center gap-1 text-xs text-emerald-700 font-medium">
-              <Moon className="h-3.5 w-3.5 fill-emerald-700" />
-              {language === 'tr' ? 'Selamün Aleyküm' : 'Assalamu alaikum'}{user?.name ? `, ${user.name}` : ''}
-            </p>
+            <h1 className="min-w-0 flex-1 text-2xl font-bold leading-tight text-gray-800">
+              {activeTab === 'overview'
+                ? ''
+                : activeTab === 'billing'
+                ? language === 'tr' ? 'Ödemeler' : 'Facturatie'
+                : language === 'tr' ? 'Veli Görüşmeleri' : 'Oudergesprekken'}
+            </h1>
+            <AccountAvatarButton onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)} />
           </div>
         )}
         {!app && (
@@ -567,23 +604,16 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
         ) : (
           <>
             {/* Child switcher (only when there is more than one child) */}
-            {students.length > 1 && (
-              <div className="flex flex-wrap gap-2 mb-4">
-                {students.map((child) => (
-                  <button
-                    key={child.id}
-                    onClick={() => setSelectedChildId(child.id)}
-                    className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-                      selectedChildId === child.id
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-white text-gray-600 hover:bg-emerald-50 ring-1 ring-black/5'
-                    }`}
-                  >
-                    {child.schoolId && schoolNames[child.schoolId] ? `${child.name} (${schoolNames[child.schoolId]})` : child.name}
-                  </button>
-                ))}
-              </div>
-            )}
+            <ChildSwitcher
+              children={students}
+              selectedId={selectedChildId}
+              onSelect={(id) => {
+                setSelectedChildId(id);
+                logAction('Kind wisselen', students.find((s) => s.id === id)?.name || id);
+              }}
+              schoolNames={schoolNames}
+              language={language}
+            />
 
             {/* Selected child header + actions. Overview only: the billing and
                 oudergesprekken tabs already say which child they're about, and

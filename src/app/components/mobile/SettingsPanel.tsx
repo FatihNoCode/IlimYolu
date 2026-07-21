@@ -1,9 +1,15 @@
-import { useRef, useState } from 'react';
-import { Globe, PlayCircle, Shield, Info, ChevronRight, ChevronDown, GripVertical, LayoutGrid } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Globe, PlayCircle, Shield, Info, ChevronRight, ChevronDown, GripVertical, LayoutGrid, Lock, LifeBuoy, Share2, Copy, Trash2 } from 'lucide-react';
 import { useApp, isDemoFamily } from '../../App';
 import TestRoleSwitcher from '../TestRoleSwitcher';
 import { type MobileNavItem, VISIBLE_SLOTS } from './navPrefs';
 import { selectionStart, selectionChanged, selectionEnd } from '../../../lib/haptics';
+import {
+  clearDeviceLog,
+  formatDeviceLog,
+  getDeviceLog,
+  subscribeDeviceLog,
+} from '../../../lib/deviceLog';
 
 interface SettingsPanelProps {
   onShowDemo?: () => void;
@@ -29,6 +35,16 @@ const T = {
     about: 'Over',
     version: 'Versie',
     reorder: 'Versleep om te ordenen',
+    fixed: 'Vast',
+    fixedHint: 'De startpagina staat altijd vooraan',
+    logTitle: 'Logboek voor problemen',
+    logNone: 'Geen problemen vastgelegd. Er wordt niets bewaard.',
+    logHas: (n: number) => `${n} probleem${n === 1 ? '' : 'en'} vastgelegd in deze sessie.`,
+    logShare: 'Logboek doorsturen',
+    logCopy: 'Kopiëren',
+    logCopied: 'Gekopieerd!',
+    logClear: 'Wissen',
+    logHint: 'Het logboek blijft op je toestel en verdwijnt vanzelf als er geen fouten waren.',
   },
   tr: {
     settings: 'Tercihler',
@@ -45,8 +61,112 @@ const T = {
     about: 'Hakkında',
     version: 'Sürüm',
     reorder: 'Sıralamak için sürükleyin',
+    fixed: 'Sabit',
+    fixedHint: 'Ana sayfa her zaman ilk sıradadır',
+    logTitle: 'Sorun günlüğü',
+    logNone: 'Kaydedilen sorun yok. Hiçbir şey saklanmıyor.',
+    logHas: (n: number) => `Bu oturumda ${n} sorun kaydedildi.`,
+    logShare: 'Günlüğü gönder',
+    logCopy: 'Kopyala',
+    logCopied: 'Kopyalandı!',
+    logClear: 'Temizle',
+    logHint: 'Günlük cihazınızda kalır ve hata yoksa kendiliğinden silinir.',
   },
 };
+
+// Surfaces the on-device log (src/lib/deviceLog.ts) so a user hitting a bug can
+// hand over what actually happened. Deliberately quiet when nothing went wrong:
+// the log is discarded on its own in that case, so there is nothing to send.
+function DeviceLogCard({ text }: { text: (typeof T)['nl'] }) {
+  const [, bump] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDeviceLog(() => bump((n) => n + 1));
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const entries = getDeviceLog();
+  const errors = entries.filter((e) => e.level === 'error');
+
+  const share = async () => {
+    const body = formatDeviceLog();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Rahman Eğitim — logboek', text: body });
+        return;
+      }
+    } catch {
+      /* user cancelled or unsupported — fall through to copy */
+    }
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+      <div className="flex items-center gap-2">
+        <LifeBuoy className="h-4 w-4 text-emerald-600" />
+        <span className="text-sm font-semibold text-gray-700">{text.logTitle}</span>
+      </div>
+      <p className="mt-2 text-xs text-gray-400">
+        {errors.length === 0 ? text.logNone : text.logHas(errors.length)}
+      </p>
+
+      {errors.length > 0 && (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={share}
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition active:scale-95"
+            >
+              {copied ? <Copy className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+              {copied ? text.logCopied : text.logShare}
+            </button>
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="rounded-xl bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 ring-1 ring-gray-200"
+            >
+              {expanded ? '▲' : '▼'} {entries.length}
+            </button>
+            <button
+              onClick={() => clearDeviceLog()}
+              className="flex items-center gap-1.5 rounded-xl bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 ring-1 ring-gray-200"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {text.logClear}
+            </button>
+          </div>
+
+          {expanded && (
+            <div className="mt-3 max-h-56 overflow-y-auto rounded-xl bg-gray-50 p-2 ring-1 ring-gray-100">
+              {entries.map((e, i) => (
+                <p
+                  key={i}
+                  className={`selectable break-words py-0.5 text-[11px] leading-snug ${
+                    e.level === 'error' ? 'font-semibold text-red-600' : 'text-gray-500'
+                  }`}
+                >
+                  {e.at.slice(11, 19)} · {e.feature} · {e.message}
+                </p>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <p className="mt-3 text-[11px] leading-snug text-gray-300">{text.logHint}</p>
+    </div>
+  );
+}
 
 export default function SettingsPanel({ onShowDemo, navItems, onReorder }: SettingsPanelProps) {
   const { language, setLanguage, user } = useApp();
@@ -73,6 +193,7 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
 
   const onHandleDown = (e: React.PointerEvent, index: number) => {
     if (!navItems || !onReorder || e.button !== 0) return;
+    if (index === 0) return; // home is pinned
     const row = (e.currentTarget as HTMLElement).closest('[data-nav-row]') as HTMLElement | null;
     rowHeight.current = row?.offsetHeight ?? 48;
     grabY.current = e.clientY;
@@ -87,7 +208,8 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
     const dy = e.clientY - grabY.current;
     // Reorder live, a row at a time, as the finger crosses each boundary.
     const steps = Math.round(dy / (rowHeight.current || 48));
-    const target = Math.max(0, Math.min(navItems.length - 1, dragIndex + steps));
+    // Lower bound is 1, not 0: nothing may be dragged above the pinned home tab.
+    const target = Math.max(1, Math.min(navItems.length - 1, dragIndex + steps));
     if (steps !== 0 && target !== dragIndex) {
       const ids = navItems.map((i) => i.id);
       const [moved] = ids.splice(dragIndex, 1);
@@ -175,6 +297,7 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
                   const onBar = !hasMore || index < VISIBLE_SLOTS;
                   const Icon = item.icon;
                   const isDragging = dragIndex === index;
+                  const pinned = index === 0;
                   return (
                     <div
                       key={item.id}
@@ -190,28 +313,42 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
                     >
                       <Icon className={`h-4 w-4 shrink-0 ${onBar ? 'text-emerald-600' : 'text-gray-400'}`} />
                       <span className="flex-1 truncate text-sm font-medium text-gray-700">{item.label}</span>
-                      {hasMore && (
+                      {pinned ? (
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          {text.fixed}
+                        </span>
+                      ) : (
+                        hasMore && (
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              onBar ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'
+                            }`}
+                          >
+                            {onBar ? text.onBar : text.underMore}
+                          </span>
+                        )
+                      )}
+                      {pinned ? (
+                        // Home always sits in the first slot, so there is
+                        // nothing to drag — show why rather than a dead handle.
+                        <span aria-label={text.fixedHint} className="-mr-1 shrink-0 p-1 text-emerald-500">
+                          <Lock className="h-4 w-4" />
+                        </span>
+                      ) : (
                         <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            onBar ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'
-                          }`}
+                          role="button"
+                          aria-label={text.reorder}
+                          onPointerDown={(e) => onHandleDown(e, index)}
+                          onPointerMove={onHandleMove}
+                          onPointerUp={endDrag}
+                          onPointerCancel={endDrag}
+                          // Only the handle opts out of scrolling; see onHandleDown.
+                          style={{ touchAction: 'none' }}
+                          className="-mr-1 shrink-0 cursor-grab p-1 text-gray-300 active:cursor-grabbing active:text-emerald-600"
                         >
-                          {onBar ? text.onBar : text.underMore}
+                          <GripVertical className="h-5 w-5" />
                         </span>
                       )}
-                      <span
-                        role="button"
-                        aria-label={text.reorder}
-                        onPointerDown={(e) => onHandleDown(e, index)}
-                        onPointerMove={onHandleMove}
-                        onPointerUp={endDrag}
-                        onPointerCancel={endDrag}
-                        // Only the handle opts out of scrolling; see onHandleDown.
-                        style={{ touchAction: 'none' }}
-                        className="-mr-1 shrink-0 cursor-grab p-1 text-gray-300 active:cursor-grabbing active:text-emerald-600"
-                      >
-                        <GripVertical className="h-5 w-5" />
-                      </span>
                     </div>
                   );
                 })}
@@ -245,6 +382,9 @@ export default function SettingsPanel({ onShowDemo, navItems, onReorder }: Setti
           <ChevronRight className="h-4 w-4 text-gray-300" />
         </a>
       </div>
+
+      {/* Problem log — only worth showing once something actually went wrong */}
+      <DeviceLogCard text={text} />
 
       {/* About */}
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">

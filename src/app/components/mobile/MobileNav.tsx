@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import type { Language } from '../../App';
 import { type MobileNavItem, VISIBLE_SLOTS } from './navPrefs';
 import { selectionStart, selectionChanged, selectionEnd } from '../../../lib/haptics';
+import { logAction } from '../../../lib/deviceLog';
 
 interface MobileNavProps {
   items: MobileNavItem[];
@@ -61,6 +62,9 @@ export default function MobileNav({ items, active, onChange, language, floating 
     : Math.max(0, primary.findIndex((i) => i.id === active));
 
   const pick = (id: string) => {
+    // Every destination the user opens goes into the on-device log, so a bug
+    // report carries the route that led to it rather than just the error.
+    logAction('Navigatie', items.find((i) => i.id === id)?.label ?? id);
     onChange(id);
     setMoreOpen(false);
   };
@@ -80,6 +84,7 @@ export default function MobileNav({ items, active, onChange, language, floating 
   const selectAt = (index: number) => {
     const slot = slots[index];
     if (!slot || slot.kind !== 'tab' || slot.item.id === active) return;
+    logAction('Navigatie', slot.item.label);
     onChange(slot.item.id);
     selectionChanged();
   };

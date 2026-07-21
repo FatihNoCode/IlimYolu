@@ -7,7 +7,9 @@ import ProductTour, { hasSeenTour } from './components/ProductTour';
 import ErrorBoundary from './components/ErrorBoundary';
 import { FeedbackHost } from './components/ui/feedback';
 import { markSessionStart, clearSessionStart, isSessionExpired } from '../lib/session';
-import { isNative, NATIVE_AUTH_REDIRECT } from '../lib/native';
+import { isNative, isAppLayout, NATIVE_AUTH_REDIRECT } from '../lib/native';
+import { logAction, logError } from '../lib/deviceLog';
+import GreetingSplash, { rememberGreeting, forgetGreeting } from './components/mobile/GreetingSplash';
 import logoUrl from '../imports/logo.svg';
 // A white-background PNG, separate from the transparent logo used on-page —
 // a transparent tab icon is hard to see against a dark or colored browser
@@ -26,6 +28,7 @@ const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
 const ElifBaPage = lazy(() => import('./components/ElifBaPage'));
 const PrivacyPage = lazy(() => import('./components/PrivacyPage'));
 const RegionalAdminDashboard = lazy(() => import('./components/RegionalAdminDashboard'));
+const CompleteProfilePage = lazy(() => import('./components/CompleteProfilePage'));
 const ToetsPage = lazy(() => import('./components/ToetsPage'));
 
 const supabase = getSupabaseClient();
@@ -136,6 +139,12 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // The cold-start greeting needs a moment to type itself out, and session
+  // checks usually finish sooner. Hold the splash until the line has actually
+  // landed (GreetingSplash reports it), with a ceiling so a stalled animation
+  // can never strand the app on the splash. Only in the app layout; on the web
+  // a reload should stay instant.
+  const [splashHeld, setSplashHeld] = useState(() => isAppLayout());
   // An aal1-only session belonging to an account that requires MFA — set
   // whenever /session or an API call reports MFA_REQUIRED, regardless of
   // whether that session came from the password flow, a Google OAuth
@@ -229,10 +238,17 @@ export default function App() {
         setUser(null);
         setMfaChallenge(true);
       }
+      logError('Server', `${endpoint} → ${data.error || response.status}`);
       throw new Error(data.error || 'Request failed');
     }
     return data;
   };
+
+  useEffect(() => {
+    if (!splashHeld) return;
+    const id = setTimeout(() => setSplashHeld(false), 4000);
+    return () => clearTimeout(id);
+  }, []);
 
   useEffect(() => {
     // Set page title
@@ -387,6 +403,7 @@ export default function App() {
           return;
         }
         if (data.user) {
+          rememberGreeting(data.user.name);
           setUser(data.user);
         }
       }
@@ -432,6 +449,9 @@ export default function App() {
 
   const handleLogin = (userData: User, token: string) => {
     markSessionStart();
+    // So the next cold start can greet by name before the session resolves.
+    rememberGreeting(userData?.name);
+    logAction('Inloggen', `rol: ${userData?.role}`);
     setUser(userData);
     setAccessToken(token);
     setMfaChallenge(false);
@@ -440,6 +460,7 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     clearSessionStart();
+    forgetGreeting();
     setUser(null);
     setAccessToken(null);
     setActingSchoolId(null);
@@ -478,6 +499,22 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [user]);
 
+  // Google hands back whatever it knows — reliably an email, usually a name,
+  // never a phone number. Anything still missing has to be filled in before the
+  // account can be used, so the gap can't quietly persist into the school's
+  // records. Checked ahead of the pending-approval screen: a half-complete
+  // profile is not something an admin should be asked to approve.
+  const needsProfile = !!user && (!user.name?.trim() || !user.phone?.trim());
+
+  const saveMissingProfile = async ({ name, phone }: { name: string; phone: string }) => {
+    const res = await apiRequest('/me', {
+      method: 'PUT',
+      body: JSON.stringify({ name, phone }),
+    });
+    rememberGreeting(name);
+    setUser({ ...(user as User), ...(res?.user || { name, phone }) });
+  };
+
   const handleEnterSchool = (schoolId: string) => {
     setActingSchoolId(schoolId);
     setViewMode('admin');
@@ -488,7 +525,19 @@ export default function App() {
     setViewMode('superadmin');
   };
 
-  if (loading) {
+  // Cold start. In the app this is the greeting rather than a spinner — see
+  // GreetingSplash; the name comes from the last session, since the current one
+  // is exactly what's still loading.
+  if (loading || splashHeld) {
+    if (isAppLayout()) {
+      return (
+        <GreetingSplash
+          language={language}
+          name={user?.name}
+          onDone={() => setSplashHeld(false)}
+        />
+      );
+    }
     return (
       <div className="size-full flex flex-col items-center justify-center gap-5 bg-gray-50">
         <img src={logoUrl} alt="Rahman Eğitim" className="h-16 w-16 object-contain" />
@@ -545,6 +594,14 @@ export default function App() {
                 setLanguage={setLanguage}
                 mfaChallenge={mfaChallenge}
                 setMfaChallenge={setMfaChallenge}
+              />
+            ) : needsProfile ? (
+              <CompleteProfilePage
+                language={language}
+                initialName={user.name || ''}
+                initialPhone={user.phone || ''}
+                onSave={saveMissingProfile}
+                onSignOut={handleLogout}
               />
             ) : user.status === 'pending' ? (
               <PendingApprovalScreen

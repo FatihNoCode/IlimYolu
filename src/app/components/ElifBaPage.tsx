@@ -2677,7 +2677,17 @@ function NameEntry({ lang, onSubmit }: { lang: Lang; onSubmit: (name: string) =>
 
 // ─── Main ElifBa Page ─────────────────────────────────────────────────────────
 
-export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
+interface ElifBaPageProps {
+  onBack?: () => void;
+  // App-shell integration. The host (ParentDashboard) hides its tab bar while
+  // a child is actually playing, and offers a corner button to come back — so
+  // it needs to know when we leave the start screen, and needs a way to send
+  // us back to it. A counter rather than a boolean so repeated presses work.
+  goHomeSignal?: number;
+  onAtHomeChange?: (atHome: boolean) => void;
+}
+
+export default function ElifBaPage({ onBack, goHomeSignal, onAtHomeChange }: ElifBaPageProps) {
   const [lang, setLang] = useState<Lang>(() => {
     try { return (localStorage.getItem('elifba_lang') as Lang) || 'nl'; } catch { return 'nl'; }
   });
@@ -2692,6 +2702,19 @@ export default function ElifBaPage({ onBack }: { onBack?: () => void }) {
   const { name, setName } = usePlayerName();
 
   const totalStars = ALL_STAGES.reduce((sum, s) => sum + (progress[s.id] || 0), 0);
+
+  // Skip the first render: the host already assumes we start at home, and
+  // firing on mount would just bounce its state.
+  const goHomeSeen = useRef(goHomeSignal);
+  useEffect(() => {
+    if (goHomeSignal === goHomeSeen.current) return;
+    goHomeSeen.current = goHomeSignal;
+    setView('home');
+  }, [goHomeSignal]);
+
+  useEffect(() => {
+    onAtHomeChange?.(view === 'home');
+  }, [view, onAtHomeChange]);
 
   const handleComplete = (stageId: string, stars: number) => {
     setProgress(p => {

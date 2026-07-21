@@ -18,12 +18,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./alert-dialog";
+import { logError } from "../../../lib/deviceLog";
+import { isAppLayout } from "../../../lib/native";
 
 // ---------------- Toast (alert replacement) ----------------
 
 export const notify = {
   success: (message: string) => toast.success(message),
-  error: (message: string) => toast.error(message),
+  // Every error the user is actually shown goes into the on-device log too, so
+  // "it said not found" can be reported with the steps that led to it.
+  error: (message: string) => {
+    logError('Melding', message);
+    return toast.error(message);
+  },
   info: (message: string) => toast(message),
   message: (message: string) => toast(message),
 };
@@ -90,7 +97,16 @@ export function FeedbackHost() {
 
   return (
     <>
-      <Toaster richColors closeButton position="top-center" />
+      {/* On iOS the WebView extends under the status bar and the notch, so a
+          toast at sonner's default 32px offset lands *behind* them — the top of
+          "Niet gevonden" was being clipped by the Dynamic Island. Clear the
+          safe-area inset first, then apply a normal gap below it. */}
+      <Toaster
+        richColors
+        closeButton
+        position="top-center"
+        offset={isAppLayout() ? 'calc(var(--safe-top) + 20px)' : undefined}
+      />
       <AlertDialog
         open={open}
         onOpenChange={(o) => {

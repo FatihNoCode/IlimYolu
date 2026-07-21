@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { User, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import { SlidersHorizontal, type LucideIcon } from 'lucide-react';
 
 export interface MobileNavItem {
   id: string;
@@ -13,15 +13,18 @@ export interface MobileNavItem {
   shortLabel?: string;
 }
 
-// The two destinations every role gets on top of its dashboard sections.
-// Prefixed ids so they can never collide with a dashboard's own tab names —
-// the admin dashboard, for instance, already owns a tab called `settings`.
+// Destinations every role gets on top of its dashboard sections. Prefixed ids
+// so they can never collide with a dashboard's own tab names — the admin
+// dashboard, for instance, already owns a tab called `settings`.
+//
+// Account is still a destination, but it is no longer *on the bar*: it's
+// reached from the avatar button in the top-right corner, where an account
+// lives in every other app. That also frees a slot on a bar that was tight.
 export const MOBILE_ACCOUNT_ID = 'mobile-account';
 export const MOBILE_PREFS_ID = 'mobile-prefs';
 
 export function mobileExtraNavItems(language: 'nl' | 'tr'): MobileNavItem[] {
   return [
-    { id: MOBILE_ACCOUNT_ID, label: language === 'tr' ? 'Hesap' : 'Account', icon: User },
     { id: MOBILE_PREFS_ID, label: language === 'tr' ? 'Tercihler' : 'Voorkeuren', icon: SlidersHorizontal },
   ];
 }
@@ -34,13 +37,23 @@ export const VISIBLE_SLOTS = 4;
 
 const KEY = (role: string) => `ilimyolu:navorder:${role}`;
 
+// The home destination is always the first slot on the bar and cannot be moved
+// — not by the user, and not by an order saved before this rule existed. It's
+// the one tab people reach for without looking, so it has to be in the same
+// place every time.
+export function homeNavId(defaultIds: string[]) {
+  return defaultIds[0];
+}
+
 // Merge a stored order with the currently-available ids: keep the stored
 // sequence (minus ids that no longer exist), then append any new ids that
-// weren't saved yet (e.g. a tab that became available this session).
+// weren't saved yet (e.g. a tab that became available this session). The home
+// id is forced back to the front regardless of what was stored.
 function reconcile(stored: string[], available: string[]): string[] {
-  const kept = stored.filter((id) => available.includes(id));
-  const missing = available.filter((id) => !kept.includes(id));
-  return [...kept, ...missing];
+  const home = homeNavId(available);
+  const kept = stored.filter((id) => available.includes(id) && id !== home);
+  const missing = available.filter((id) => !kept.includes(id) && id !== home);
+  return [home, ...kept, ...missing].filter(Boolean);
 }
 
 function load(role: string, defaultIds: string[]): string[] {
@@ -85,8 +98,11 @@ export function useNavOrder(
   }, [key]);
 
   const setOrder = (next: string[]) => {
-    setOrderState(next);
-    save(role, next);
+    // Re-run reconcile rather than trusting the caller: it re-pins home, so a
+    // reorder UI can never persist an order that demotes it.
+    const safe = reconcile(next, defaultIds);
+    setOrderState(safe);
+    save(role, safe);
   };
 
   return [order, setOrder];

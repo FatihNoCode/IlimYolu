@@ -18,6 +18,7 @@ import { notify } from './ui/feedback';
 import { isAppLayout } from '../../lib/native';
 import MobileNav from './mobile/MobileNav';
 import AccountPanel from './mobile/AccountPanel';
+import AccountAvatarButton from './mobile/AccountAvatarButton';
 import SettingsPanel from './mobile/SettingsPanel';
 import {
   useNavOrder,
@@ -67,7 +68,6 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
     'toets',
     ...(diplomaVisible ? ['diploma'] : []),
     'beheer',
-    MOBILE_ACCOUNT_ID,
     MOBILE_PREFS_ID,
   ]);
   const [conferSessions, setConferSessions] = useState<any[]>([]);
@@ -478,7 +478,7 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
     { id: 'beheer', label: 'Beheer', icon: Settings },
   ];
 
-  // App layout: the sidebar's destinations plus Account/Preferences become the
+  // App layout: the sidebar's destinations plus Preferences become the
   // bottom tab bar, in the user's saved order.
   const allMobileItems: MobileNavItem[] = [...navItems, ...mobileExtraNavItems(language)];
   const mobileById = Object.fromEntries(allMobileItems.map((i) => [i.id, i]));
@@ -492,6 +492,12 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
         className="size-full overflow-auto bg-gray-50 px-4 pt-6"
         style={{ paddingBottom: 'calc(5.5rem + var(--safe-bottom))' }}
       >
+        <div className="mx-auto mb-2 flex max-w-lg justify-end">
+          <AccountAvatarButton
+            onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)}
+            active={activeTab === MOBILE_ACCOUNT_ID}
+          />
+        </div>
         {activeTab === MOBILE_ACCOUNT_ID ? (
           <AccountPanel onLogout={onLogout} />
         ) : (
@@ -510,14 +516,13 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
       {app && mobileNav}
       <div className="max-w-7xl mx-auto">
         {app && (
-          <div className="mb-4">
-            <h1 className="text-2xl font-bold text-gray-800 leading-tight">
+          // The greeting is said once at cold start (GreetingSplash), not on
+          // every tab — and the account now lives behind the avatar here.
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <h1 className="min-w-0 flex-1 text-2xl font-bold leading-tight text-gray-800">
               {mobileById[activeTab]?.label ?? t.teacherDashboard}
             </h1>
-            <p className="flex items-center gap-1 text-xs text-emerald-700 font-medium">
-              <Moon className="h-3.5 w-3.5 fill-emerald-700" />
-              {language === 'tr' ? 'Selamün Aleyküm' : 'Assalamu alaikum'}{user?.name ? `, ${user.name}` : ''}
-            </p>
+            <AccountAvatarButton onOpen={() => setActiveTab(MOBILE_ACCOUNT_ID)} />
           </div>
         )}
         {!app && (

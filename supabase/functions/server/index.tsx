@@ -74,8 +74,20 @@ const PENDING_EXEMPT_PATHS = [
   '/make-server-6679cacd/invite/',
 ];
 
+// Exact-match exemptions. Kept separate from the prefix list above because a
+// prefix test on '/me' would also let '/meldingen' through.
+//
+// /me is exempt so an account that signed up through Google can finish its own
+// profile (name, phone) before an admin ever sees it — that screen runs while
+// the account is still `pending`, and it only ever writes the caller's own
+// name/phone/preferences.
+const PENDING_EXEMPT_EXACT = [
+  '/make-server-6679cacd/me',
+];
+
 app.use('/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
+  if (PENDING_EXEMPT_EXACT.includes(path)) return next();
   if (PENDING_EXEMPT_PATHS.some((p) => path.startsWith(p))) return next();
 
   // No token: the route is either public or does its own auth check. Either
