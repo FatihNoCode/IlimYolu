@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { useApp } from '../App';
+import { useApp, isDemoFamily } from '../App';
 import { useHashTab } from '../useHashTab';
 import { translations } from './translations';
 import { Plus, School, ArrowRight, RefreshCw, Inbox as InboxIcon, MapPin, ArrowLeft, Users, Check, X, Trash2, BarChart3, GraduationCap, BookOpen, CalendarCheck, Send } from 'lucide-react';
@@ -10,6 +10,8 @@ import type { LocationRecord } from './LocationsMap';
 import booksLogo from '../../imports/logo.svg';
 import { notify, confirmDialog } from './ui/feedback';
 import MetricsDrilldown from './MetricsDrilldown';
+import TestRoleSwitcher from './TestRoleSwitcher';
+import { isNative } from '../../lib/native';
 
 // Leaflet and its CSS are only needed once a superadmin opens the map, so the
 // whole map bundle stays out of the initial download.
@@ -237,7 +239,7 @@ function ToggleSwitch({ checked, disabled, onChange, label, title }: { checked: 
 }
 
 export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAdminDashboardProps) {
-  const { language, setLanguage, apiRequest } = useApp();
+  const { language, setLanguage, apiRequest, user } = useApp();
   const t = translations[language];
   const rtx = rt[language];
 
@@ -462,6 +464,15 @@ export default function SuperAdminDashboard({ onLogout, onEnterSchool }: SuperAd
             <UserMenu onLogout={onLogout} />
           </div>
         </div>
+
+        {/* The dropdown version of this lives inside UserMenu, but on the native
+            shell it's been unreliable to reach, so demo accounts also get it
+            inline where a tap can't miss it. */}
+        {isNative() && isDemoFamily(user?.email) && (
+          <div className="mb-4 sm:mb-6">
+            <TestRoleSwitcher language={language} />
+          </div>
+        )}
 
         <div className="flex gap-4 sm:gap-6 items-start">
           <Sidebar
