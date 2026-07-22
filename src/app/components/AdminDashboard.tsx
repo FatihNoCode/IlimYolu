@@ -404,7 +404,26 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
             </div>
           )}
 
+          {/* Klassen beheer and Gebruikers are both wide registers: a row per
+              student or per account, carrying the parent's email address, the
+              class, the behaviour notes and a column of actions. On a phone
+              those rows either wrap into an unreadable stack or scroll
+              sideways past the edge of the screen, and both are edited far
+              more comfortably sitting down. So the tab stays, and says where
+              the work happens. */}
           {activeTab === 'entities' && (
+            app ? (
+              <DesktopOnly
+                language={language}
+                title={language === 'tr' ? 'Sınıf Yönetimi' : 'Klassen beheer'}
+                reason={
+                  language === 'tr'
+                    ? 'Sınıf yönetimi, her öğrenci için veli e-postası, sınıf ve notların yan yana durduğu geniş bir tablodur. Telefon ekranında bu satırlar okunamıyor — web sitesinde çok daha rahat çalışırsınız.'
+                    : 'Klassen beheer is een brede tabel: per leerling het e-mailadres van de ouder, de klas en de notities naast elkaar. Op een telefoonscherm zijn die rijen niet te lezen — op de website werkt het een stuk prettiger.'
+                }
+                tab="entities"
+              />
+            ) : (
             <ManageEntitiesView
               classes={classes}
               teachers={teachers}
@@ -414,9 +433,22 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
               apiRequest={apiRequest}
               onDataChange={loadData}
             />
+            )
           )}
 
           {activeTab === 'users' && (
+            app ? (
+              <DesktopOnly
+                language={language}
+                title={language === 'tr' ? 'Kullanıcılar' : 'Gebruikers'}
+                reason={
+                  language === 'tr'
+                    ? 'Kullanıcı listesi; isim, e-posta, rol ve işlemlerin aynı satırda durduğu geniş bir tablodur ve telefon ekranına sığmaz. Web sitesinde yönetmek çok daha kolay.'
+                    : 'De gebruikerslijst zet naam, e-mailadres, rol en acties op één rij — breder dan een telefoonscherm. Op de website beheert u dat een stuk makkelijker.'
+                }
+                tab="users"
+              />
+            ) : (
             <UsersView
               classes={classes}
               students={students}
@@ -426,6 +458,7 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
               apiRequest={apiRequest}
               onDataChange={loadData}
             />
+            )
           )}
 
           {/* Importeren is a spreadsheet: seven columns wide, often hundreds
@@ -591,11 +624,24 @@ export default function AdminDashboard({ onLogout, onExitAdminMode }: AdminDashb
           )}
 
           {activeTab === 'inschrijvingen' && (
-            <InschrijvingenView
-              language={language}
-              apiRequest={apiRequest}
-              classes={classes}
-            />
+            app ? (
+              <DesktopOnly
+                language={language}
+                title={language === 'tr' ? 'Kayıtlar' : 'Inschrijvingen'}
+                reason={
+                  language === 'tr'
+                    ? 'Her kayıt, veli ve öğrenci bilgilerinin tamamını içeren geniş bir satırdır; onaylamadan önce hepsini bir arada görmeniz gerekir. Bu iş için web sitesi daha uygun.'
+                    : 'Elke inschrijving is een brede rij met alle gegevens van ouder en kind — die wilt u in één oogopslag naast elkaar zien voordat u goedkeurt. Daar is de website beter voor.'
+                }
+                tab="inschrijvingen"
+              />
+            ) : (
+              <InschrijvingenView
+                language={language}
+                apiRequest={apiRequest}
+                classes={classes}
+              />
+            )
           )}
 
           {activeTab === 'oudergesprekken' && (

@@ -16,6 +16,7 @@ import UserMenu from './UserMenu';
 import Sidebar from './Sidebar';
 import { notify } from './ui/feedback';
 import { isAppLayout } from '../../lib/native';
+import DesktopOnly from './mobile/DesktopOnly';
 import MobileNav from './mobile/MobileNav';
 import AccountPanel from './mobile/AccountPanel';
 import AccountAvatarButton from './mobile/AccountAvatarButton';
@@ -1104,13 +1105,30 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
             )}
 
             {/* ─── BEHEER TAB ─── */}
+            {/* A row per student with attendance, behaviour and the parent's
+                contact details side by side. That comparison across columns is
+                the whole point of the screen, and it is the first thing a
+                phone-width layout destroys. */}
             {activeTab === 'beheer' && (
-              <TeacherManageView
-                classes={classes}
-                students={studentsWithStats}
-                language={language}
-                apiRequest={apiRequest}
-              />
+              app ? (
+                <DesktopOnly
+                  language={language}
+                  title={language === 'tr' ? 'Sınıflar' : 'Klassen'}
+                  reason={
+                    language === 'tr'
+                      ? 'Sınıf beheer ekranı, her öğrenci için devamsızlık, davranış ve veli bilgilerini yan yana gösterir. Bu karşılaştırma telefon ekranında kayboluyor, bu yüzden bu ekran web sitesinde kalıyor.'
+                      : 'Klassen beheer zet per leerling de aanwezigheid, het gedrag en de oudergegevens naast elkaar. Juist die vergelijking gaat op een telefoonscherm verloren, dus dit scherm blijft op de website.'
+                  }
+                  tab="beheer"
+                />
+              ) : (
+                <TeacherManageView
+                  classes={classes}
+                  students={studentsWithStats}
+                  language={language}
+                  apiRequest={apiRequest}
+                />
+              )
             )}
 
             {/* ─── OUDERGESPREKKEN TAB ─── */}
@@ -1225,7 +1243,20 @@ export default function TeacherDashboard({ onLogout }: TeacherDashboardProps) {
 
             {/* ─── DIPLOMA TAB ─── */}
             {activeTab === 'diploma' && diplomaVisible && (
-              <DiplomaView classes={classes} language={language} apiRequest={apiRequest} />
+              app ? (
+                <DesktopOnly
+                  language={language}
+                  title="Diploma"
+                  reason={
+                    language === 'tr'
+                      ? 'Diplomalar sınıfın tamamı için tek tabloda hazırlanır ve A4 olarak yazdırılır — ikisi de bilgisayarda yapılan işler.'
+                      : 'Diploma’s maakt u voor een hele klas tegelijk in één tabel, en ze worden op A4 afgedrukt — allebei werk voor een computer.'
+                  }
+                  tab="diploma"
+                />
+              ) : (
+                <DiplomaView classes={classes} language={language} apiRequest={apiRequest} />
+              )
             )}
           </div>
         </div>

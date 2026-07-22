@@ -1,15 +1,14 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../App';
 import { translations } from './translations';
 import { useHashTab } from '../useHashTab';
-import { Euro, Moon, PlayCircle, AlertTriangle, Check, Receipt, Sparkles, ArrowLeft } from 'lucide-react';
+import { Euro, Moon, AlertTriangle, Check, Receipt, Sparkles } from 'lucide-react';
 import booksLogo from '../../imports/logo.svg';
 import UserMenu from './UserMenu';
-import ProductTour from './ProductTour';
 import AgendaCalendar from './AgendaCalendar';
 import ChildSwitcher from './ChildSwitcher';
 import { notify } from './ui/feedback';
-import { isAppLayout } from '../../lib/native';
+import { isAppLayout, isNative } from '../../lib/native';
 import { logAction } from '../../lib/deviceLog';
 import MobileNav from './mobile/MobileNav';
 import AccountPanel from './mobile/AccountPanel';
@@ -24,7 +23,23 @@ import {
   type MobileNavItem,
 } from './mobile/navPrefs';
 
-const ElifBaPage = lazy(() => import('./ElifBaPage'));
+// Elif-Ba is not a screen in this app any more: it is the game on the website,
+// and it is kept in one place so a fix to it lands for everyone at once
+// instead of only for whoever updated their app. The nav entry stays — parents
+// look for it there — but it hands off to the site rather than rendering a
+// second, drifting copy in a webview tab.
+const ELIF_BA_URL = 'https://rahmanegitim.com/elif-ba';
+
+async function openElifBa() {
+  if (isNative()) {
+    // In-app browser rather than an app switch: the child comes back to the
+    // dashboard with a swipe, and the parent's session is never interrupted.
+    const { Browser } = await import('@capacitor/browser');
+    await Browser.open({ url: ELIF_BA_URL });
+    return;
+  }
+  window.open(ELIF_BA_URL, '_blank', 'noopener');
+}
 
 interface Student {
   id: string;
@@ -78,7 +93,6 @@ function getSchoolPrice(s: BoekhoudingSettings, isMember: boolean, hasSibling: b
 export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   const { language, setLanguage, apiRequest, user } = useApp();
   const t = translations[language];
-  const [showDemo, setShowDemo] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [homeworkCompletion, setHomeworkCompletion] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -105,7 +119,7 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   // though it no longer appears on the bar.
   const [activeTab, setActiveTab] = useHashTab<string>(
     'overview',
-    ['overview', 'billing', 'oudergesprekken', 'alifba', MOBILE_ACCOUNT_ID, MOBILE_PREFS_ID] as const,
+    ['overview', 'billing', 'oudergesprekken', MOBILE_ACCOUNT_ID, MOBILE_PREFS_ID] as const,
   );
   // MOBILE_ACCOUNT_ID is deliberately absent: account is reached from the
   // avatar in the top-right corner, not from the tab bar.
@@ -116,10 +130,6 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
     'alifba',
     MOBILE_PREFS_ID,
   ]);
-  // Elif-Ba takes over the screen once a child presses Start — see the alifba
-  // branch below. false until ElifBaPage reports it's back on its start screen.
-  const [elifbaAtHome, setElifbaAtHome] = useState(true);
-  const [elifbaGoHome, setElifbaGoHome] = useState(0);
   const [billingSettings, setBillingSettings] = useState<BoekhoudingSettings | null>(null);
   const [billingRecord, setBillingRecord] = useState<any>(null);
   const [billingPayments, setBillingPayments] = useState<PaymentLogEntry[]>([]);
@@ -432,59 +442,26 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
   const orderedIds = navOrder.filter((id) => byId[id]);
   const navItems = orderedIds.map((id) => byId[id]);
 
+  // Elif-Ba never becomes the active tab — picking it opens the website and
+  // leaves the user standing where they were, so there is no empty screen to
+  // come back from.
+  const selectTab = (id: string) => {
+    if (id === 'alifba') {
+      openElifBa();
+      return;
+    }
+    setActiveTab(id);
+  };
+
   const mobileNav = (floating = true) => (
     <MobileNav
       items={navItems}
       active={activeTab}
-      onChange={setActiveTab}
+      onChange={selectTab}
       language={language}
       floating={floating}
     />
   );
-
-  // App layout: Elif-Ba is a full-bleed destination with its own dark theme,
-  // rendered edge-to-edge above the bottom tab bar rather than inside the
-  // padded gray dashboard shell.
-  //
-  // Once the child presses Start, the tab bar goes away entirely: the games are
-  // played with a finger near the bottom of the screen, and a live tab bar
-  // there means every mis-swipe drops them out of a game. A back button in the
-  // top corner — out of the play area — returns them to the Elif-Ba start
-  // screen, where the bar comes back.
-  if (app && activeTab === 'alifba') {
-    return (
-      // safe-top: `fixed inset-0` opts out of the safe-area padding #root
-      // carries, so on iOS this view has to add the status-bar gap itself.
-      <div className="safe-top fixed inset-0 flex flex-col bg-slate-700">
-        {!elifbaAtHome && (
-          <button
-            type="button"
-            onClick={() => setElifbaGoHome((n) => n + 1)}
-            aria-label={language === 'tr' ? 'Geri' : 'Terug'}
-            className="absolute right-3 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition active:scale-90"
-            style={{ top: 'calc(var(--safe-top) + 0.75rem)' }}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-        )}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <Suspense
-            fallback={
-              <div className="flex size-full items-center justify-center">
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
-              </div>
-            }
-          >
-            <ElifBaPage
-              goHomeSignal={elifbaGoHome}
-              onAtHomeChange={setElifbaAtHome}
-            />
-          </Suspense>
-        </div>
-        {elifbaAtHome && mobileNav(false)}
-      </div>
-    );
-  }
 
   // App layout: Preferences is a tab-bar destination; Account is reached from
   // the avatar button, but renders here as the same kind of full-screen panel.
@@ -500,8 +477,6 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
         {activeTab === MOBILE_ACCOUNT_ID ? (
           <AccountPanel onLogout={onLogout} />
         ) : (
-          // No onShowDemo: the guided tour is web-only now, so Voorkeuren has
-          // nothing to re-open and the row is gone with it.
           <SettingsPanel navItems={navItems} onReorder={setNavOrder} />
         )}
         {mobileNav()}
@@ -514,9 +489,6 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
       className={`size-full overflow-auto ${app ? 'px-3 pt-5' : 'p-3 sm:p-4 md:p-6'}`}
       style={app ? { paddingBottom: 'calc(5.5rem + var(--safe-bottom))' } : undefined}
     >
-      {!app && showDemo && (
-        <ProductTour role="parent" language={language} onClose={() => setShowDemo(false)} />
-      )}
       {app && mobileNav()}
       <div className="max-w-7xl mx-auto">
         {/* App layout drops the logo/toolbar header — navigation lives in the
@@ -547,13 +519,6 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => setShowDemo(true)}
-              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white text-emerald-700 rounded-full hover:bg-emerald-50 text-xs sm:text-sm font-semibold shadow-sm transition"
-            >
-              <PlayCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              {language === 'tr' ? 'Demo' : 'Demo'}
-            </button>
             <div className="flex gap-1 bg-white rounded-full p-1 shadow-sm">
               <button
                 onClick={() => setLanguage('tr')}
@@ -639,6 +604,13 @@ export default function ParentDashboard({ onLogout }: ParentDashboardProps) {
               }`}
             >
               {language === 'tr' ? 'Ödemeler' : 'Facturatie'}
+            </button>
+            <button
+              onClick={() => openElifBa()}
+              className="px-3 sm:px-4 py-2 rounded-lg font-semibold transition whitespace-nowrap text-xs sm:text-sm text-gray-500 hover:text-gray-700 inline-flex items-center gap-1.5"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Elif-Ba
             </button>
           </div>
         )}

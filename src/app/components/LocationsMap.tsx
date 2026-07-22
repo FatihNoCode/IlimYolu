@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, Search } from 'lucide-react';
 import { NETHERLANDS_LAND } from './netherlandsBorder';
+import { matchesAny } from '../../lib/search';
 
 export interface LocationRecord {
   id: string;
@@ -77,11 +78,8 @@ export default function LocationsMap({ locations, selectedId, onSelect, t }: Loc
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return locations;
-    return locations.filter(
-      (l) => l.name.toLowerCase().includes(q) || (l.city || '').toLowerCase().includes(q),
-    );
+    if (!query.trim()) return locations;
+    return locations.filter((l) => matchesAny([l.name, l.city], query));
   }, [locations, query]);
 
   useEffect(() => {

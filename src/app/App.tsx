@@ -3,12 +3,12 @@ import { Mail } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getSupabaseClient } from '../lib/supabase';
 import LoginPage from './components/LoginPage';
-import { hasSeenTour } from './components/tourSeen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { FeedbackHost } from './components/ui/feedback';
 import { markSessionStart, clearSessionStart, isSessionExpired } from '../lib/session';
 import { isNative, isAppLayout, NATIVE_AUTH_REDIRECT } from '../lib/native';
 import { logAction, logError } from '../lib/deviceLog';
+import { initPush, unregisterPush, takePendingPushLink } from '../lib/push';
 import GreetingSplash, { rememberGreeting, forgetGreeting } from './components/mobile/GreetingSplash';
 import logoUrl from '../imports/logo.svg';
 
@@ -29,7 +29,6 @@ const AdminDashboard = lazy(loadAdminDashboard);
 const SuperAdminDashboard = lazy(loadSuperAdminDashboard);
 const RegionalAdminDashboard = lazy(loadRegionalAdminDashboard);
 
-const ProductTour = lazy(() => import('./components/ProductTour'));
 const InvitePage = lazy(() => import('./components/InvitePage'));
 const InschrijvingPage = lazy(() => import('./components/InschrijvingPage'));
 const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
@@ -230,7 +229,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'superadmin' | 'admin'>('superadmin');
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [isRecovery, setIsRecovery] = useState(false);
-  const [showTour, setShowTour] = useState(false);
   const pathSegments = window.location.pathname.split('/');
   const pageParam = new URLSearchParams(window.location.search).get('page');
   // Canonical route is /inschrijven; the older /inschrijving path (and page
@@ -479,18 +477,6 @@ export default function App() {
     }
   };
 
-  // The first-visit product tour walks parents through enrolling a child, so it
-  // is shown to parents only — and on the web only. In the app it was the first
-  // thing a new parent met, before they had seen the app it was explaining.
-  const tourRole = user?.role === 'parent' && !isAppLayout() ? 'parent' : null;
-
-  // Show the role-specific product tour on the user's first visit.
-  useEffect(() => {
-    if (user && tourRole && !hasSeenTour(tourRole)) {
-      setShowTour(true);
-    }
-  }, [user, tourRole]);
-
   // Demo-only role hop. Asks the server for a real session belonging to the
   // pre-seeded account for `role`, installs it, and resets the superadmin-only
   // acting-school state so the freshly assumed role starts from a clean slate.
@@ -526,7 +512,26 @@ export default function App() {
     setMfaChallenge(false);
   };
 
+  // Ask for notification permission once there is an account to attach it to,
+  // and route a notification that was tapped while the app was closed to the
+  // screen it is about — by which point the session finally exists to do it.
+  useEffect(() => {
+    if (!user) return;
+    initPush(apiRequest);
+    const link = takePendingPushLink();
+    if (link) {
+      try {
+        window.location.hash = link.startsWith('#') ? link.slice(1) : link;
+      } catch {
+        /* a malformed link is not worth breaking the launch over */
+      }
+    }
+  }, [user, apiRequest]);
+
   const handleLogout = async () => {
+    // Before the token is gone: detaching the device needs an authenticated
+    // call, and after signOut there is nothing left to authenticate with.
+    await unregisterPush(apiRequest);
     await supabase.auth.signOut();
     clearSessionStart();
     forgetGreeting();
@@ -635,13 +640,6 @@ export default function App() {
   return (
     <AppContext.Provider value={contextValue}>
       <FeedbackHost />
-      {showTour && tourRole && (
-        // Its own boundary: the tour is an overlay, so it must not hold up the
-        // dashboard rendering underneath it while its chunk arrives.
-        <Suspense fallback={null}>
-          <ProductTour role={tourRole} language={language} onClose={() => setShowTour(false)} />
-        </Suspense>
-      )}
       <div className="size-full bg-gray-50">
         <ErrorBoundary language={language}>
           <Suspense

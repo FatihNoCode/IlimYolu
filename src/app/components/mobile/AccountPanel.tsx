@@ -3,6 +3,7 @@ import { User as UserIcon, Bell, LogOut, Trash2, Check, ChevronRight, X } from '
 import { useApp } from '../../App';
 import { notify } from '../ui/feedback';
 import { isNative } from '../../../lib/native';
+import { setUnreadCount as publishUnread } from './unreadStore';
 
 interface Notification {
   id: string;
@@ -94,6 +95,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
       const data = await apiRequest('/notifications');
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
+      publishUnread(data.unreadCount || 0);
     } catch (err) {
       console.error('Error loading notifications:', err);
     }
@@ -146,6 +148,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
       await apiRequest('/notifications/read-all', { method: 'POST' });
       setNotifications((prev) => prev.map((x) => ({ ...x, read: true })));
       setUnreadCount(0);
+      publishUnread(0);
     } catch (err) {
       console.error('Error marking all read:', err);
     }
@@ -156,7 +159,7 @@ export default function AccountPanel({ onLogout }: AccountPanelProps) {
       try {
         await apiRequest(`/notifications/${n.id}/read`, { method: 'POST' });
         setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
-        setUnreadCount((c) => Math.max(0, c - 1));
+        setUnreadCount((c) => { publishUnread(Math.max(0, c - 1)); return Math.max(0, c - 1); });
       } catch (err) {
         console.error('Error marking notification read:', err);
       }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import booksLogo from '../../imports/logo.svg';
+import { missingWordInstruction } from './toets/examText';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6679cacd`;
 
@@ -118,7 +119,7 @@ export default function ToetsPage() {
   const totalSeconds = exam?.timeLimitMinutes ? exam.timeLimitMinutes * 60 : null;
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-  const inputCls = 'w-full px-3 py-2.5 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500';
+  const inputCls = 'w-full px-3 py-2.5 text-base border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center px-4 py-8">
@@ -197,7 +198,15 @@ export default function ToetsPage() {
 
             {(exam.questions || []).map((q: any, qi: number) => (
               <div key={q.id} className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 p-5 space-y-3">
-                <p className={`text-sm font-semibold text-gray-800 ${q.type === 'qurangap' ? 'text-lg leading-loose' : ''}`}
+                {q.type === 'qurangap' && (
+                  // The verse and the four Arabic words don't say what to do
+                  // with them. Spelled out here in the student's own language
+                  // rather than left to the teacher to announce out loud.
+                  <p className="text-sm font-medium text-emerald-700">
+                    {missingWordInstruction(exam.language === 'tr' ? 'tr' : 'nl')}
+                  </p>
+                )}
+                <p className={`font-semibold text-gray-800 ${q.type === 'qurangap' ? 'text-3xl leading-loose' : 'text-base leading-relaxed'}`}
                   dir={q.type === 'qurangap' ? 'rtl' : undefined}>
                   <span dir="ltr" className="text-emerald-700 mr-1">{qi + 1}.</span> {q.prompt}
                 </p>
@@ -207,7 +216,7 @@ export default function ToetsPage() {
                       const cur: number[] = Array.isArray(answers[q.id]) ? answers[q.id] : [];
                       const on = cur.includes(oi);
                       return (
-                        <label key={oi} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer text-sm transition ${on ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+                        <label key={oi} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer text-base transition ${on ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
                           <input
                             type={q.multiple ? 'checkbox' : 'radio'}
                             checked={on}
@@ -231,7 +240,7 @@ export default function ToetsPage() {
                     {[true, false].map((v) => (
                       <button key={String(v)}
                         onClick={() => setAnswers((a) => ({ ...a, [q.id]: v }))}
-                        className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition ${answers[q.id] === v ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-gray-200 text-gray-600 hover:border-emerald-300'}`}>
+                        className={`flex-1 py-3 rounded-xl border text-base font-semibold transition ${answers[q.id] === v ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-gray-200 text-gray-600 hover:border-emerald-300'}`}>
                         {v ? 'Ja / Evet' : 'Nee / Hayır'}
                       </button>
                     ))}
@@ -246,7 +255,7 @@ export default function ToetsPage() {
                     {(q.options || []).map((opt: string, oi: number) => (
                       <button key={oi}
                         onClick={() => setAnswers((a) => ({ ...a, [q.id]: oi }))}
-                        className={`px-4 py-2 rounded-xl border text-lg transition ${answers[q.id] === oi ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
+                        className={`px-5 py-3 rounded-xl border text-3xl leading-loose transition ${answers[q.id] === oi ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-emerald-300'}`}>
                         {opt}
                       </button>
                     ))}

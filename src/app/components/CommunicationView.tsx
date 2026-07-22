@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Send, Paperclip, X, Inbox, Mail, CheckSquare, Square } from 'lucide-react';
+import { matchesAny } from '../../lib/search';
 
 interface AppUser {
   id: string;
@@ -121,9 +122,7 @@ export default function CommunicationView({ language, apiRequest }: Communicatio
   };
 
   const filteredUsers = users.filter(u => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    return matchesAny([u.name, u.email], search);
   });
 
   const toggleUser = (id: string) => {

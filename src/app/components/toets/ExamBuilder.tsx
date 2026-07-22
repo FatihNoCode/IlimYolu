@@ -399,7 +399,7 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
               {(verseInputs[q.id]?.words || []).length > 0 && !q.prompt.includes('______') && (
                 <div>
                   <p className="text-xs font-medium text-gray-600 mb-1">{text.pickWord}</p>
-                  <div dir="rtl" className="flex flex-wrap gap-1.5 bg-gray-50 rounded-lg p-3 text-lg leading-loose">
+                  <div dir="rtl" className="flex flex-wrap gap-1.5 bg-gray-50 rounded-lg p-3 text-3xl leading-loose">
                     {(verseInputs[q.id]?.words || []).map((w, wi) => (
                       <button key={wi} onClick={() => blankWord(q, wi)}
                         className="px-1.5 rounded hover:bg-emerald-100 hover:text-emerald-800 transition">
@@ -411,12 +411,12 @@ export default function ExamBuilder({ language, initial, onSave, onCancel }: Exa
               )}
               {q.prompt.includes('______') && (
                 <>
-                  <p dir="rtl" className="bg-gray-50 rounded-lg p-3 text-lg leading-loose">{q.prompt}</p>
+                  <p dir="rtl" className="bg-gray-50 rounded-lg p-3 text-3xl leading-loose">{q.prompt}</p>
                   <div className="flex flex-wrap gap-2">
                     {(q.options || []).map((opt, oi) => (
                       <label key={oi} className="flex items-center gap-1.5 text-sm cursor-pointer bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                         <input type="radio" checked={q.correct === oi} onChange={() => updateQuestion(q.id, { correct: oi })} className="accent-emerald-600" />
-                        <span dir="rtl">{opt}</span>
+                        <span dir="rtl" className="text-2xl leading-loose">{opt}</span>
                       </label>
                     ))}
                   </div>

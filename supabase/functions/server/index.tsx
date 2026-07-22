@@ -261,6 +261,208 @@ function clientIp(c: any): string {
   return c.req.header('CF-Connecting-IP') || 'unknown';
 }
 
+// ─── Push notifications (Firebase Cloud Messaging, HTTP v1) ───────────────
+//
+// The bell inside the app only tells a user something happened once they have
+// already opened the app — which is exactly when they least need telling. A
+// ziekmelding that needs a reply, or a booked oudergesprek, has to reach the
+// phone's own notification centre while the app is closed. That is what this
+// does.
+//
+// One transport for both platforms: Android talks FCM natively, and iOS goes
+// through the same FCM project via the APNs auth key uploaded to Firebase, so
+// there is a single credential to manage and a single code path to debug.
+// Configured with one Supabase secret, FCM_SERVICE_ACCOUNT — the JSON of a
+// Firebase service account with the "Firebase Messaging API" role. When it is
+// absent, everything below turns into a no-op and the in-app bell and email
+// keep working exactly as before; push is additive, never load-bearing.
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id: string;
+}
+
+function fcmServiceAccount(): ServiceAccount | null {
+  const raw = Deno.env.get('FCM_SERVICE_ACCOUNT');
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed.client_email || !parsed.private_key || !parsed.project_id) return null;
+    // Secrets pasted through a dashboard often arrive with the newlines in the
+    // PEM escaped; unescaping here means the operator doesn't have to know.
+    parsed.private_key = String(parsed.private_key).replace(/\\n/g, '\n');
+    return parsed as ServiceAccount;
+  } catch {
+    console.log('FCM_SERVICE_ACCOUNT is not valid JSON — push disabled');
+    return null;
+  }
+}
+
+// Google's OAuth tokens last an hour; minting one per notification would add a
+// round-trip to every send, so it is cached until shortly before it expires.
+let cachedFcmToken: { token: string; expiresAt: number } | null = null;
+
+function b64url(bytes: Uint8Array | string): string {
+  const raw = typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes);
+  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function fcmAccessToken(sa: ServiceAccount): Promise<string | null> {
+  if (cachedFcmToken && cachedFcmToken.expiresAt > Date.now() + 60_000) {
+    return cachedFcmToken.token;
+  }
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const claims = b64url(JSON.stringify({
+      iss: sa.client_email,
+      scope: 'https://www.googleapis.com/auth/firebase.messaging',
+      aud: 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600,
+    }));
+
+    // The PEM body is base64 DER; WebCrypto wants the raw bytes.
+    const pem = sa.private_key
+      .replace(/-----BEGIN PRIVATE KEY-----/, '')
+      .replace(/-----END PRIVATE KEY-----/, '')
+      .replace(/\s+/g, '');
+    const der = Uint8Array.from(atob(pem), (ch) => ch.charCodeAt(0));
+    const key = await crypto.subtle.importKey(
+      'pkcs8',
+      der.buffer,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const signature = new Uint8Array(await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      new TextEncoder().encode(`${header}.${claims}`),
+    ));
+    const jwt = `${header}.${claims}.${b64url(signature)}`;
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) {
+      console.log('FCM token exchange failed:', JSON.stringify(data));
+      return null;
+    }
+    cachedFcmToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000,
+    };
+    return cachedFcmToken.token;
+  } catch (err) {
+    console.log('FCM token error:', err);
+    return null;
+  }
+}
+
+// A user's registered devices. One person legitimately has several (a phone
+// and a tablet, or the same phone reinstalled), so this is a list.
+const pushTokensKey = (userId: string) => `push_tokens:${userId}`;
+
+async function getPushTokens(userId: string): Promise<{ token: string; platform: string }[]> {
+  const list = await kv.get(pushTokensKey(userId));
+  return Array.isArray(list) ? list : [];
+}
+
+async function removePushToken(userId: string, token: string) {
+  const list = await getPushTokens(userId);
+  const next = list.filter((t) => t.token !== token);
+  if (next.length !== list.length) await kv.set(pushTokensKey(userId), next);
+}
+
+// Fire-and-forget delivery of one notification to all of a user's devices.
+// Never throws and never blocks the caller's own work: a notification that
+// couldn't be pushed is still in the bell and still in their inbox, and an
+// FCM outage must not fail the ziekmelding that triggered it.
+async function sendPush(userId: string, opts: {
+  titleNl: string;
+  titleTr: string;
+  bodyNl: string;
+  bodyTr: string;
+  link?: string;
+  type?: string;
+}) {
+  try {
+    const sa = fcmServiceAccount();
+    if (!sa) return;
+    const tokens = await getPushTokens(userId);
+    if (tokens.length === 0) return;
+
+    const accessToken = await fcmAccessToken(sa);
+    if (!accessToken) return;
+
+    // Which language the notification is written in follows the user's own
+    // setting, because this text lands on a lock screen where there is no
+    // interface around it to explain itself.
+    const userRecord = await kv.get(`user:${userId}`);
+    const tr = (userRecord?.language || 'nl') === 'tr';
+    const title = tr ? opts.titleTr : opts.titleNl;
+    const body = tr ? opts.bodyTr : opts.bodyNl;
+
+    await Promise.all(tokens.map(async ({ token }) => {
+      try {
+        const res = await fetch(
+          `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: {
+                token,
+                notification: { title, body },
+                // Read by the tap handler in src/lib/push.ts to open the
+                // screen the notification is about instead of the home tab.
+                data: {
+                  link: opts.link || '',
+                  type: opts.type || '',
+                },
+                android: {
+                  priority: 'HIGH',
+                  notification: { channel_id: 'default', sound: 'default' },
+                },
+                apns: {
+                  payload: { aps: { sound: 'default', badge: 1 } },
+                },
+              },
+            }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          const status = err?.error?.details?.[0]?.errorCode || err?.error?.status;
+          // A token dies when the app is uninstalled or its data cleared.
+          // Dropping it here is what keeps the list from growing into a pile
+          // of addresses that will never answer again.
+          if (status === 'UNREGISTERED' || status === 'INVALID_ARGUMENT' || res.status === 404) {
+            await removePushToken(userId, token);
+          } else {
+            console.log('FCM send failed:', res.status, JSON.stringify(err));
+          }
+        }
+      } catch (err) {
+        console.log('FCM send error:', err);
+      }
+    }));
+  } catch (err) {
+    console.log('sendPush error:', err);
+  }
+}
+
 // Creates an in-app notification for a user (shown in their UserMenu bell).
 // Bilingual title/body are stored together since notifications are cheap and
 // this avoids re-deriving text from a `type` on the frontend.
@@ -290,6 +492,10 @@ async function createNotification(userId: string, opts: {
   ids.unshift(id);
   if (ids.length > 100) ids.length = 100; // cap per-user history
   await kv.set(`user_notifications:${userId}`, ids);
+  // Push rides along with the bell entry rather than being a separate call
+  // site, so a feature can never add an in-app notification and silently
+  // forget the phone. Not awaited: delivery is best-effort.
+  sendPush(userId, opts);
   return notification;
 }
 
@@ -312,6 +518,13 @@ async function notifyUser(userId: string, opts: {
   const pref = userRecord.notificationPref || 'email';
   if (pref === 'inapp' || pref === 'both') {
     await createNotification(userId, opts);
+  } else {
+    // The email/in-app setting is about where the *record* of a notification
+    // is kept. A push is neither: it is the phone tapping its owner on the
+    // shoulder, and the user already chose whether they want that when the OS
+    // asked them for permission. So it goes out on this branch too — but only
+    // here, since createNotification has already sent one on the other.
+    sendPush(userId, opts);
   }
   if ((pref === 'email' || pref === 'both') && userRecord.email) {
     const subject = opts.emailSubject || `${opts.titleNl} | ${opts.titleTr} - Rahman Eğitim`;
@@ -1194,6 +1407,46 @@ app.post("/make-server-6679cacd/notifications/:id/read", async (c) => {
   } catch (err) {
     console.log('Mark notification read error:', err);
     return c.json({ error: 'Failed to update notification' }, 500);
+  }
+});
+
+// Registers this device for push. Called on every launch, not just the first:
+// FCM rotates tokens on reinstall, restore-from-backup and occasionally on its
+// own, and a stale token is a phone that silently stops receiving anything.
+app.post("/make-server-6679cacd/push/register", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const { token, platform } = await c.req.json();
+    if (!token || typeof token !== 'string') return c.json({ error: 'Missing token' }, 400);
+
+    const list = await getPushTokens(user.id);
+    const existing = list.find((t) => t.token === token);
+    const next = existing
+      ? list.map((t) => (t.token === token ? { ...t, platform: platform || t.platform, seenAt: new Date().toISOString() } : t))
+      // Cap the list: a device that hasn't checked in for a long time is a
+      // phone that was replaced, and pushing to it costs a round-trip forever.
+      : [...list, { token, platform: platform || 'unknown', seenAt: new Date().toISOString() }].slice(-10);
+    await kv.set(pushTokensKey(user.id), next);
+    return c.json({ ok: true });
+  } catch (err) {
+    console.log('Push register error:', err);
+    return c.json({ error: 'Failed to register device' }, 500);
+  }
+});
+
+// Called on sign-out, so the next person to use this phone doesn't receive
+// notifications meant for the previous account.
+app.post("/make-server-6679cacd/push/unregister", async (c) => {
+  try {
+    const { user, error } = await verifyUser(c.req.raw);
+    if (error) return c.json({ error }, 401);
+    const { token } = await c.req.json();
+    if (token) await removePushToken(user.id, token);
+    return c.json({ ok: true });
+  } catch (err) {
+    console.log('Push unregister error:', err);
+    return c.json({ error: 'Failed to unregister device' }, 500);
   }
 });
 

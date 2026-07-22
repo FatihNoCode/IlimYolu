@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { MapPin, Search } from 'lucide-react';
 import type { LocationRecord } from '../LocationsMap';
+import { matchesAny } from '../../../lib/search';
 
 interface LocationsListProps {
   locations: LocationRecord[];
@@ -27,11 +28,8 @@ export default function LocationsList({ locations, selectedId, onSelect, t }: Lo
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return locations;
-    return locations.filter(
-      (l) => l.name.toLowerCase().includes(q) || (l.city || '').toLowerCase().includes(q),
-    );
+    if (!query.trim()) return locations;
+    return locations.filter((l) => matchesAny([l.name, l.city], query));
   }, [locations, query]);
 
   return (

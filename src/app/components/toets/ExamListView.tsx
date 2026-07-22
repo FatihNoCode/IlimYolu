@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import ExamBuilder from './ExamBuilder';
 import ExamPrintView from './ExamPrintView';
 import { ExamDraft, EMPTY_EXAM } from './examTypes';
+import { examDocumentTitle } from './examText';
 import { notify, confirmDialog } from '../ui/feedback';
 import { isAppLayout } from '../../../lib/native';
 import DesktopOnly from '../mobile/DesktopOnly';
@@ -180,6 +181,25 @@ export default function ExamListView({ language, apiRequest, classes }: ExamList
 
   const triggerPrint = (exam: any) => {
     setPrintExam(exam);
+  };
+
+  // The browser names a print-to-PDF after document.title, so the title is
+  // swapped for the exam's own name for exactly the duration of the print
+  // dialog and put back afterwards — otherwise every saved exam lands in
+  // Downloads as the app's name with a counter after it.
+  const doPrint = () => {
+    if (!printExam) return;
+    const previous = document.title;
+    document.title = examDocumentTitle(printExam);
+    const restore = () => {
+      document.title = previous;
+      window.removeEventListener('afterprint', restore);
+    };
+    window.addEventListener('afterprint', restore);
+    window.print();
+    // Safari on iOS never fires afterprint; a timer makes sure the title is
+    // not left renamed for the rest of the session.
+    setTimeout(restore, 60000);
   };
 
 
@@ -472,7 +492,7 @@ export default function ExamListView({ language, apiRequest, classes }: ExamList
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" />
             <div className="flex gap-2 justify-end">
               <button onClick={() => setPrintExam(null)} className="px-3 py-2 text-xs font-medium text-gray-500">{text.close}</button>
-              <button onClick={() => window.print()} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">{text.doPrint}</button>
+              <button onClick={doPrint} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition">{text.doPrint}</button>
             </div>
           </div>
         </div>

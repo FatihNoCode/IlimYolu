@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Settings, X, Check, ChevronDown, ChevronUp, Euro, Trash2, Plus, Pencil, Mail } from 'lucide-react';
 import { notify, confirmDialog } from './ui/feedback';
+import { matches } from '../../lib/search';
 
 interface Student {
   id: string;
@@ -346,7 +347,7 @@ export default function BoekhoudingView({ classes, students, language, apiReques
 
   // ─── Filter + group ───
   const filteredStudents = search.trim()
-    ? students.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
+    ? students.filter(s => matches(s.name, search))
     : students;
 
   const byClass = classes.map(cls => ({
@@ -463,7 +464,7 @@ export default function BoekhoudingView({ classes, students, language, apiReques
   );
 
   const logStudentOptions = logStudentSearch.trim()
-    ? students.filter(s => s.name.toLowerCase().includes(logStudentSearch.toLowerCase()))
+    ? students.filter(s => matches(s.name, logStudentSearch))
     : students;
   const studentName = (id: string) => students.find(s => s.id === id)?.name || id;
   const categoryLabel = (cat: string) => (language === 'tr' ? CATEGORY_LABELS[cat]?.tr : CATEGORY_LABELS[cat]?.nl) || cat;

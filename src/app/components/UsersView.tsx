@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Pencil, Check, X, Users as UsersIcon, Search, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { notify } from './ui/feedback';
+import { matchesAny } from '../../lib/search';
 
 interface Class {
   id: string;
@@ -328,9 +329,7 @@ export default function UsersView({
 
   const filteredUsers = users.filter((u) => {
     if (u.status === 'pending') return false; // shown in the dedicated panel above
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    return matchesAny([u.name, u.email], search);
   });
 
   const sortedUsers = sortKey
